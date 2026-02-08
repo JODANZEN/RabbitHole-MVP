@@ -1,218 +1,272 @@
-// content.js — Rabbithole UI: scrape and analyze visible transcript
-(function() {
-  const BTN_ID = 'rabbithole-btn';
-  const PANEL_ID = 'rabbithole-panel';
-  const PANEL_BODY_ID = PANEL_ID + '-body';
+/**
+ * RabbitHole - Content Script
+ * Extracts article/paper text and sends to local FastAPI backend for analysis.
+ * Activated when the user clicks the extension icon.
+ */
 
-  // -- Utility helpers --
-  function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+const BACKEND_URL = 'http://127.0.0.1:8000';
+const REQUEST_TIMEOUT_MS = 30000;
 
-  // Opens the transcript sidebar on YouTube (if available)
-  async function openTranscriptPanel() {
-    // Attempt to find and click the transcript button if not already open
-    // YouTube changes its DOM often
-    const transcriptBtn = Array.from(document.querySelectorAll('button'))
-      .find(b => b.textContent && /(transcript|show transcript)/i.test(b.textContent));
-    if (transcriptBtn && transcriptBtn.offsetParent !== null) {
-      transcriptBtn.click();
-      await sleep(350); // wait for UI
+console.debug('[RabbitHole] Content script loaded');
+
+/**
+ * Extract visible article text from the page.
+ * Priority: selected text > article element > body text
+ */
+function extractText() {
+  console.debug('[RabbitHole] Extracting text...');
+
+  const selection = window.getSelection().toString().trim();
+  if (selection.length > 100) {
+    console.debug('[RabbitHole] Using selected text (' + selection.length + ' chars)');
+    return selection;
+  }
+
+  const article =
+    document.querySelector('article') ||
+    document.querySelector('main') ||
+    document.querySelector('[role="main"]') ||
+    document.querySelector('.mw-parser-output') || // Wikipedia
+    document.querySelector('.arxiv'); // arXiv
+
+  if (article) {
+    const text = article.innerText.trim();
+    if (text.length > 50) {
+      console.debug('[RabbitHole] Using article element (' + text.length + ' chars)');
+      return text;
     }
-    // YouTube auto-expands transcript on new UI
-    // Just in case, scroll sidebar into view
-    const panel = document.querySelector('ytd-engagement-panel-section-list-renderer[section-identifier="engagement-panel-searchable-transcript"]');
-    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await sleep(200);
   }
 
-  // Returns transcript lines as text from the DOM, or null if not available
-  function readTranscriptFromDOM() {
-    // Modern YouTube UI
-    const panel = document.querySelector(
-      'ytd-engagement-panel-section-list-renderer[section-identifier="engagement-panel-searchable-transcript"]'
-    );
-    if (!panel || panel.getAttribute('visibility') !== 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') return null;
-    // Find transcript items
-    const items = panel.querySelectorAll('ytd-transcript-segment-renderer');
-    if (!items.length) return null;
-    return Array.from(items).map(item => {
-      const span = item.querySelector('span');
-      return span ? span.textContent : '';
-    }).join(' ').replace(/\s+/g, ' ').trim();
-  }
+  const text = document.body.innerText.trim();
+  console.debug('[RabbitHole] Using body text (' + text.length + ' chars)');
+  return text;
+}
 
-  // Main orchestrator: ensures transcript panel is open and tries to extract transcript.
-  async function getTranscriptText() {
-    await openTranscriptPanel();
-    // Try for up to ~2s if loading
-    for (let i = 0; i < 10; ++i) {
-      const txt = readTranscriptFromDOM();
-      if (txt && txt.length > 60) return txt;
-      await sleep(200);
-    }
-    return null;
-  }
+/**
+ * Extract page title
+ */
+function extractTitle() {
+  const h1 = document.querySelector('h1');
+  if (h1) return h1.innerText.trim();
 
-  // UI setup logic -- same as before
-  function makeButton() {
-    const btn = document.createElement('button');
-    btn.id = BTN_ID;
-    btn.innerText = 'Rabbithole';
-    btn.style.cssText = `
-      padding:6px 10px;
-      margin-left:8px;
-      background:#ff6f61;
-      color:white;
-      border:none;
-      border-radius:6px;
-      font-weight:600;
-      cursor:pointer;
-      box-shadow:0 2px 6px rgba(0,0,0,0.12);
-    `;
-    btn.addEventListener('click', onButtonClick);
-    return btn;
-  }
+  const titleTag = document.querySelector('title');
+  if (titleTag) return titleTag.innerText.trim();
 
-  function makePanel() {
-    const panel = document.createElement('div');
-    panel.id = PANEL_ID;
-    panel.style.cssText = `
-      position: absolute;
-      z-index: 999999;
-      top: 10px;
-      right: 10px;
-      width: 360px;
-      max-height: 60vh;
-      overflow:auto;
-      background: white;
-      border-radius: 8px;
-      padding:12px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      display:none;
-      font-family: system-ui, Arial;
-      color: #111;
-    `;
-    panel.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <strong>Rabbithole</strong>
-      <button id="${PANEL_ID}-close" style="background:none;border:none;cursor:pointer;font-size:16px">✕</button>
+  return document.domain;
+}
+
+/**
+ * Ensure the panel exists in the DOM, create it if not
+ */
+function ensurePanel() {
+  if (document.getElementById('rabbithole-panel')) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'rabbithole-panel';
+  panel.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 99999;
+    width: 420px;
+    max-height: 85vh;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    overflow-y: auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `;
+
+  panel.innerHTML = `
+    <div style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px 10px 0 0;">
+      <h3 style="margin: 0; font-size: 15px; color: #fff; font-weight: 700;">RabbitHole</h3>
+      <button id="rabbithole-close" style="background: none; border: none; font-size: 18px; cursor: pointer; color: rgba(255,255,255,0.8); padding: 0; width: 24px; height: 24px; line-height: 24px;">✕</button>
     </div>
-    <div id="${PANEL_BODY_ID}">Loading...</div>
-    <div style="margin-top:8px"><button id="${PANEL_ID}-save" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd;cursor:pointer">Save to thread</button></div>`;
-    return panel;
-  }
+    <div id="rabbithole-content" style="padding: 16px; min-height: 80px;">
+      <p style="color: #999; text-align: center; margin: 0;">Analyzing...</p>
+    </div>
+  `;
 
-  function injectUI() {
-    // remove existing
-    const existingBtn = document.getElementById(BTN_ID);
-    if (existingBtn) existingBtn.remove();
-    const existingPanel = document.getElementById(PANEL_ID);
-    if (existingPanel) existingPanel.remove();
+  document.body.appendChild(panel);
 
-    let container = document.querySelector('#container #title') || document.querySelector('#above-the-fold') || document.querySelector('#top-level-buttons-computed') || document.querySelector('#info-contents');
-    if (!container) container = document.querySelector('ytd-watch-flexy') || document.body;
-
-    const btn = makeButton();
-    try { container.appendChild(btn); } catch (e) { document.body.appendChild(btn); }
-    const panel = makePanel();
-    document.body.appendChild(panel);
-    document.getElementById(`${PANEL_ID}-close`).addEventListener('click', () => {
-      panel.style.display = 'none';
-    });
-    document.getElementById(`${PANEL_ID}-save`).addEventListener('click', () => {
-      chrome.storage.local.get({ thread: [] }, (res) => {
-        const ctx = getYouTubeWatchContext();
-        const thread = res.thread || [];
-        thread.unshift({ videoId: ctx.videoId, title: ctx.title, channel: ctx.channel, addedAt: Date.now() });
-        chrome.storage.local.set({ thread }, () => {
-          alert('Saved to thread ✅');
-        });
-      });
-    });
-  }
-
-  // Extracts video/page context (url, title, channel).
-  function getYouTubeWatchContext() {
-    try {
-      const url = new URL(window.location.href);
-      const videoId = url.searchParams.get("v");
-      if (!videoId) return { status: "no_video" };
-      const titleEl = document.querySelector('h1.title') || document.querySelector('h1') || document.querySelector('h1.ytd-watch-metadata');
-      const channelEl = document.querySelector('ytd-channel-name a') || document.querySelector('#text-container.ytd-channel-name a');
-      return {
-        status: "ok",
-        videoId,
-        title: titleEl ? titleEl.innerText.trim() : '',
-        channel: channelEl ? channelEl.innerText.trim() : ''
-      };
-    } catch (err) {
-      return { status: 'error', message: String(err) };
-    }
-  }
-
-  // Handler for Rabbithole button click
-  async function onButtonClick(ev) {
-    const panel = document.getElementById(PANEL_ID);
-    panel.style.display = 'block';
-    panel.style.top = (window.scrollY + 20) + 'px';
-    const body = document.getElementById(PANEL_BODY_ID);
-    body.innerText = 'Detecting transcript...';
-    const ctx = getYouTubeWatchContext();
-    if (!ctx || ctx.status !== 'ok') {
-      body.innerText = 'No video detected on this page.';
-      return;
-    }
-    // -- Get transcript from DOM --
-    let transcriptText = await getTranscriptText();
-    if (!transcriptText) {
-      body.innerHTML = `<div>No transcript found on the page.<br/><button id="${PANEL_BODY_ID}-retry" style="margin-top:10px;">Retry</button></div>`;
-      document.getElementById(`${PANEL_BODY_ID}-retry`).onclick = onButtonClick;
-      return;
-    }
-    // -- POST to backend /analyze --
-    try {
-      body.innerText = 'Analyzing (AI)...';
-      const base = 'http://localhost:3000';
-      const anRes = await fetch(base + '/analyze', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ videoId: ctx.videoId, title: ctx.title, transcript: transcriptText })
-      });
-      const analysis = await anRes.json();
-      if (!anRes.ok || analysis.error) {
-        body.innerHTML = `<div>Error analyzing:<br/>${(analysis.error||'Unknown error')}</div>`;
-        return;
-      }
-      body.innerHTML = `<div><strong>Level:</strong> ${analysis.level} / 10 <div style="opacity:.8;font-size:12px">${analysis.level_reason || ''}</div></div>
-        <hr/>
-        <div><strong>Summary</strong><div>${analysis.summary}</div></div>
-        <div style="margin-top:8px"><strong>Concepts</strong><ul>${(analysis.concepts||[]).map(c=>`<li>${c}</li>`).join('')}</ul></div>
-        <div><strong>Prerequisite:</strong> ${analysis.prerequisite}</div>
-        <div style="margin-top:8px"><strong>Try easier:</strong> ${analysis.easier}</div>
-        <div><strong>Go deeper:</strong> ${analysis.deeper}</div>`;
-    } catch (err) {
-      body.innerHTML = `<div>Error contacting backend:<br>${(err.message||err)}</div>`;
-    }
-  }
-
-  // SPA navigation detection for re-injecting UI
-  let lastUrl = location.href;
-  function detectUrlChange() {
-    const cur = location.href;
-    if (cur !== lastUrl) {
-      lastUrl = cur;
-      setTimeout(injectUI, 700);
-    }
-  }
-  const _pushState = history.pushState;
-  history.pushState = function() {
-    _pushState.apply(this, arguments);
-    detectUrlChange();
-  };
-  window.addEventListener('popstate', detectUrlChange);
-  const observer = new MutationObserver(() => {
-    if (document.querySelector('ytd-watch-flexy') || location.href.includes('watch?v=')) {
-      injectUI();
-    }
+  document.getElementById('rabbithole-close').addEventListener('click', () => {
+    panel.style.display = 'none';
   });
-  observer.observe(document.body, { childList: true, subtree: true });
-  setTimeout(injectUI, 1200);
-})();
+}
+
+/**
+ * Show loading state in the panel
+ */
+function showLoading() {
+  const content = document.getElementById('rabbithole-content');
+  if (content) {
+    content.innerHTML = '<p style="color: #667eea; text-align: center; font-weight: 600; margin: 0;">Analyzing... please wait</p>';
+  }
+}
+
+/**
+ * Show error message in the panel
+ */
+function showError(message) {
+  console.error('[RabbitHole] Error:', message);
+  const content = document.getElementById('rabbithole-content');
+  if (content) {
+    content.innerHTML = `
+      <div style="background: #fadbd8; border-left: 3px solid #e74c3c; padding: 10px; border-radius: 4px;">
+        <p style="color: #e74c3c; font-size: 13px; line-height: 1.5; margin: 0;">${escapeHtml(message)}</p>
+      </div>
+    `;
+  }
+}
+
+/**
+ * Call the backend and analyze the page text
+ */
+async function analyzeText() {
+  try {
+    const title = extractTitle();
+    const text = extractText();
+
+    if (text.length < 50) {
+      showError('Not enough text to analyze. Please visit an article or select a longer passage.');
+      return;
+    }
+
+    console.debug('[RabbitHole] Calling backend:', BACKEND_URL + '/analyze', {
+      title,
+      textLength: text.length,
+    });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    const response = await fetch(BACKEND_URL + '/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, text }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[RabbitHole] HTTP ' + response.status + ':', errorText);
+      showError('Backend error: HTTP ' + response.status + '. Is the backend running at ' + BACKEND_URL + '?');
+      return;
+    }
+
+    const data = await response.json();
+    console.debug('[RabbitHole] Response received:', data);
+    renderResponse(data);
+  } catch (error) {
+    console.error('[RabbitHole] Error:', error);
+    let message = error.message;
+
+    if (error.name === 'AbortError') {
+      message = 'Request timed out after 30s. Is the backend responding?';
+    } else if (error instanceof SyntaxError) {
+      message = 'Backend returned invalid JSON. Check server logs.';
+    } else if (error.message.indexOf('Failed to fetch') !== -1) {
+      message = 'Cannot reach backend at ' + BACKEND_URL + '. Make sure it is running.';
+    }
+
+    showError(message);
+  }
+}
+
+/**
+ * Render the analysis response into the panel
+ */
+function renderResponse(data) {
+  const required = ['level', 'level_reason', 'summary', 'concepts', 'prerequisite', 'easier', 'deeper'];
+  const missing = required.filter((f) => !(f in data));
+
+  if (missing.length > 0) {
+    showError('Backend response missing fields: ' + missing.join(', '));
+    return;
+  }
+
+  const levelColor = getLevelColor(data.level);
+  const concepts = Array.isArray(data.concepts) ? data.concepts : [];
+  const conceptsHtml = concepts
+    .map(
+      (c) =>
+        '<span style="background: #f0f0f0; padding: 5px 10px; border-radius: 4px; margin: 0 6px 6px 0; font-size: 12px; display: inline-block;">' +
+        escapeHtml(c) +
+        '</span>'
+    )
+    .join('');
+
+  const html = `
+    <div style="margin-bottom: 16px;">
+      <div style="display: inline-block; background: ${levelColor}; color: white; padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 13px;">Level ${data.level}/10</div>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #666; line-height: 1.4;">${escapeHtml(data.level_reason)}</p>
+    </div>
+
+    <div style="margin-bottom: 14px;">
+      <p style="margin: 0; font-size: 11px; color: #667eea; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Summary</p>
+      <p style="margin: 6px 0 0 0; font-size: 13px; line-height: 1.5; color: #333;">${escapeHtml(data.summary)}</p>
+    </div>
+
+    <div style="margin-bottom: 14px;">
+      <p style="margin: 0; font-size: 11px; color: #667eea; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Key Concepts</p>
+      <div style="margin: 6px 0 0 0; display: flex; flex-wrap: wrap;">${conceptsHtml}</div>
+    </div>
+
+    <div style="margin-bottom: 12px; padding: 10px; background: #f9f9f9; border-left: 3px solid #667eea; border-radius: 4px;">
+      <p style="margin: 0; font-size: 11px; color: #667eea; font-weight: 600;">Prerequisite</p>
+      <p style="margin: 6px 0 0 0; font-size: 12px; color: #333;">${escapeHtml(data.prerequisite)}</p>
+    </div>
+
+    <div style="margin-bottom: 12px; padding: 10px; background: #f9f9f9; border-left: 3px solid #667eea; border-radius: 4px;">
+      <p style="margin: 0; font-size: 11px; color: #667eea; font-weight: 600;">Start Here (Easier)</p>
+      <p style="margin: 6px 0 0 0; font-size: 12px; color: #333;">${escapeHtml(data.easier)}</p>
+    </div>
+
+    <div style="padding: 10px; background: #f9f9f9; border-left: 3px solid #667eea; border-radius: 4px;">
+      <p style="margin: 0; font-size: 11px; color: #667eea; font-weight: 600;">Go Deeper</p>
+      <p style="margin: 6px 0 0 0; font-size: 12px; color: #333;">${escapeHtml(data.deeper)}</p>
+    </div>
+
+    ${data.confidence ? '<p style="margin: 10px 0 0 0; font-size: 11px; color: #999;">Confidence: ' + (data.confidence * 100).toFixed(0) + '%</p>' : ''}
+  `;
+
+  document.getElementById('rabbithole-content').innerHTML = html;
+}
+
+/**
+ * Get color for difficulty level
+ */
+function getLevelColor(level) {
+  const colors = {
+    1: '#2ecc71', 2: '#27ae60', 3: '#3498db', 4: '#2980b9',
+    5: '#9b59b6', 6: '#8e44ad', 7: '#e74c3c', 8: '#c0392b',
+    9: '#d35400', 10: '#a93226',
+  };
+  return colors[level] || '#667eea';
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Listen for the ANALYZE_PAGE message from background.js (triggered by icon click)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'ANALYZE_PAGE') {
+    console.debug('[RabbitHole] Analyze triggered via icon click');
+    ensurePanel();
+    const panel = document.getElementById('rabbithole-panel');
+    panel.style.display = 'block';
+    showLoading();
+    analyzeText();
+    sendResponse({ ok: true });
+  }
+});
+
+console.debug('[RabbitHole] Ready');

@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "RabbitHole",
+  "version": "0.2.0",
+  "description": "Research assistant that analyzes articles and papers for difficulty, key concepts, and learning recommendations",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["*://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_title": "RabbitHole - Analyze this page"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
