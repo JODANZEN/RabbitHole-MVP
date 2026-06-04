@@ -12,15 +12,7 @@
  * Panel tabs: Analysis | Papers | Thread | Course
  */
 
-import {
-  getActiveCourse,
-  saveCourse,
-  setActiveCourseId,
-  deleteCourse,
-  saveReading,
-} from './db';
-
-'use strict';
+import { getActiveCourseId, setActiveCourseId } from './db';
 
 const GEMINI_API_URL     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const GROQ_API_URL       = 'https://api.groq.com/openai/v1/chat/completions';
@@ -30,6 +22,37 @@ const GROQ_KEY_STORAGE      = 'rabbithole_groq_key';
 const PRIMARY_PROVIDER_KEY  = 'rabbithole_primary_provider'; // 'gemini' | 'groq'
 const REQUEST_TIMEOUT_MS = 30_000;
 const SESSION_KEY        = 'rabbithole_session';   // key in chrome.storage.local
+
+// ── Backend (course/RAG features) ──────────────────────────────────────
+const BACKEND_URL = 'http://127.0.0.1:8000';
+
+async function apiFetch(path, options = {}) {
+  let res;
+  try {
+    res = await fetch(BACKEND_URL + path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+  } catch (e) {
+    throw new Error(`Can't reach the RabbitHole backend at ${BACKEND_URL}. Is it running? (cd papers && uvicorn backend.main:app)`);
+  }
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { const j = await res.json(); detail = j.detail || detail; } catch {}
+    if (res.status === 503) detail = 'Course features need the database. Check DATABASE_URL in papers/.env.';
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+const CourseAPI = {
+  create:     (name, syllabus)     => apiFetch('/courses', { method: 'POST', body: JSON.stringify({ name, syllabus }) }),
+  get:        (id)                 => apiFetch('/courses/' + id),
+  list:       ()                   => apiFetch('/courses'),
+  remove:     (id)                 => apiFetch('/courses/' + id, { method: 'DELETE' }),
+  addReading: (id, title, text)    => apiFetch(`/courses/${id}/readings`, { method: 'POST', body: JSON.stringify({ title, text }) }),
+  ask:        (id, question)       => apiFetch(`/courses/${id}/ask`, { method: 'POST', body: JSON.stringify({ question }) }),
+};
 
 // ── API key helpers ────────────────────────────────────────────────────
 
@@ -330,6 +353,8 @@ let currentTab       = 'analysis';
 let dumbifyBtn       = null;
 let pendingSelection = '';
 let activeCourse     = null;   // loaded once on panel open, cached in memory
+let tutorMessages    = [];     // [{ role: 'user'|'tutor', text, sources? }]
+let tutorBusy        = false;
 
 // ══════════════════════════════════════════════════════════════════════
 // ── Extension context guard ────────────────────────────────────────────
@@ -818,6 +843,11 @@ function ensurePanel() {
         font-size:12px; font-weight:600; color:#aaa;
         border-bottom:2px solid transparent;
       ">Course</button>
+      <button class="rh-tab-btn" data-tab="tutor" style="
+        flex:1; padding:9px 4px; border:none; background:none; cursor:pointer;
+        font-size:12px; font-weight:600; color:#aaa;
+        border-bottom:2px solid transparent;
+      ">Tutor</button>
     </div>
 
     <!-- Content area -->
@@ -931,8 +961,11 @@ function ensurePanel() {
 
   renderSessionBar();
 
-  // Pre-load active course so it's ready when analyze is triggered
-  getActiveCourse().then((c) => { activeCourse = c; }).catch(() => {});
+  // Pre-load active course (from the backend) so it's ready when analyze is triggered
+  getActiveCourseId().then(async (id) => {
+    if (!id) return;
+    try { activeCourse = await CourseAPI.get(id); } catch { /* backend may be down */ }
+  }).catch(() => {});
 }
 
 function switchTab(name) {
@@ -952,6 +985,8 @@ function switchTab(name) {
     renderThreadTab();
   } else if (name === 'course') {
     renderCourseTab();
+  } else if (name === 'tutor') {
+    renderTutorTab();
   }
 }
 
@@ -1207,24 +1242,56 @@ async function renderCourseTab() {
   content.innerHTML = `<p style="color:#aaa; text-align:center; padding:24px 0;">Loading…</p>`;
 
   try {
-    activeCourse = await getActiveCourse();
+    const id = await getActiveCourseId();
+    if (id) {
+      activeCourse = await CourseAPI.get(id);
+      renderCourseLoaded(content, activeCourse);
+      return;
+    }
   } catch (e) {
+    // active id is stale (course deleted) or backend unreachable — fall through to setup,
+    // but surface a connection error so the user knows the backend may be down.
+    if (String(e.message || '').includes("reach the RabbitHole backend")) {
+      content.innerHTML = `<p style="color:#e53e3e; font-size:12px; padding:18px 4px; line-height:1.6;">${escapeHtml(e.message)}</p>`;
+      return;
+    }
     activeCourse = null;
+    await setActiveCourseId(null);
   }
 
-  if (activeCourse) {
-    renderCourseLoaded(content, activeCourse);
-  } else {
-    renderCourseSetupForm(content);
-  }
+  await renderCourseSetupForm(content);
 }
 
-function renderCourseSetupForm(content) {
+async function renderCourseSetupForm(content) {
+  // Show any existing courses on the backend so the user can re-activate one.
+  let existing = [];
+  try { existing = (await CourseAPI.list()).courses || []; } catch { /* backend optional here */ }
+
+  const existingHtml = existing.length ? `
+    <p class="rh-section-label" style="margin-bottom:6px;">Your courses</p>
+    <div style="margin-bottom:16px;">
+      ${existing.map((c) => `
+        <div class="rh-course-pick" data-id="${escapeHtml(c.id)}" style="
+          display:flex; align-items:center; justify-content:space-between; gap:8px;
+          padding:8px 10px; border:1px solid #e8e5f5; border-radius:8px; margin-bottom:6px;
+          cursor:pointer; background:#fafaff;">
+          <span style="font-size:12px; font-weight:600; color:#333;">🎓 ${escapeHtml(c.name)}</span>
+          <span style="display:flex; gap:8px; align-items:center;">
+            <span style="font-size:10px; color:#aaa;">${c.reading_count || 0} readings</span>
+            <button class="rh-course-del" data-id="${escapeHtml(c.id)}" title="Delete course" style="
+              background:none; border:none; color:#c66; cursor:pointer; font-size:14px; padding:0 2px;">×</button>
+          </span>
+        </div>`).join('')}
+    </div>
+    <p style="font-size:11px; color:#aaa; text-align:center; margin:0 0 14px;">— or create a new one —</p>
+  ` : '';
+
   content.innerHTML = `
     <div style="padding:4px 0;">
+      ${existingHtml}
       <p style="font-size:13px; font-weight:700; color:#333; margin-bottom:4px;">🎓 Set up your course</p>
       <p style="font-size:12px; color:#888; margin-bottom:14px; line-height:1.5;">
-        Paste your syllabus and RabbitHole will ground every analysis in your actual course material.
+        Paste your syllabus — RabbitHole grounds every analysis and tutor answer in your actual course material.
       </p>
 
       <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:.04em;">
@@ -1263,42 +1330,57 @@ function renderCourseSetupForm(content) {
   textarea.addEventListener('focus',  () => textarea.style.borderColor  = '#667eea');
   textarea.addEventListener('blur',   () => textarea.style.borderColor  = '#d4d8f0');
 
+  // Activate an existing course
+  content.querySelectorAll('.rh-course-pick').forEach((row) => {
+    row.addEventListener('click', async (e) => {
+      if (e.target.closest('.rh-course-del')) return;   // delete handled separately
+      const id = row.dataset.id;
+      try {
+        activeCourse = await CourseAPI.get(id);
+        await setActiveCourseId(id);
+        renderCourseLoaded(content, activeCourse);
+        refreshTutorTabState();
+      } catch (err) { statusEl.textContent = `Error: ${err.message}`; }
+    });
+  });
+
+  // Delete an existing course
+  content.querySelectorAll('.rh-course-del').forEach((delBtn) => {
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = delBtn.dataset.id;
+      if (!confirm('Delete this course and all its readings? This cannot be undone.')) return;
+      try {
+        await CourseAPI.remove(id);
+        const activeId = await getActiveCourseId();
+        if (activeId === id) { await setActiveCourseId(null); activeCourse = null; }
+        renderCourseTab();
+      } catch (err) { statusEl.textContent = `Error: ${err.message}`; }
+    });
+  });
+
   btn.addEventListener('click', async () => {
     const name     = nameInput.value.trim();
     const syllabus = textarea.value.trim();
 
-    if (!name) { statusEl.textContent = 'Enter a course name.'; return; }
-    if (syllabus.length < 100) { statusEl.textContent = 'Paste more of your syllabus — need at least a few sentences.'; return; }
+    if (!name) { statusEl.style.color = '#e53e3e'; statusEl.textContent = 'Enter a course name.'; return; }
+    if (syllabus.length < 100) { statusEl.style.color = '#e53e3e'; statusEl.textContent = 'Paste more of your syllabus — need at least a few sentences.'; return; }
 
     btn.disabled = true;
     btn.textContent = '⏳ Processing syllabus…';
     statusEl.textContent = '';
 
     try {
-      const processed = await callLLM(buildSyllabusPrompt(syllabus));
-
-      const course = {
-        id:         crypto.randomUUID(),
-        name:       name || processed.course_name || 'My Course',
-        syllabus:   syllabus,
-        processed:  {
-          ...processed,
-          semester:      processed.semester || '',
-          weeks:         processed.weeks || [],
-          key_concepts:  processed.key_concepts || [],
-          learning_outcomes: processed.learning_outcomes || [],
-        },
-        created_at: new Date().toISOString(),
-      };
-
-      await saveCourse(course);
+      // Backend parses the syllabus, embeds it for RAG, and returns the course.
+      const course = await CourseAPI.create(name, syllabus);
       await setActiveCourseId(course.id);
       activeCourse = course;
-
       renderCourseLoaded(content, course);
+      refreshTutorTabState();
     } catch (err) {
       btn.disabled = false;
       btn.textContent = 'Set Up Course →';
+      statusEl.style.color = '#e53e3e';
       statusEl.textContent = `Error: ${err.message}`;
     }
   });
@@ -1384,11 +1466,11 @@ function renderCourseLoaded(content, course) {
   `;
 
   content.querySelector('#rh-change-course').addEventListener('click', async () => {
-    if (!confirm('Remove this course and set up a new one?')) return;
-    await deleteCourse(course.id);
+    // "Change" just deactivates — the course stays on the backend so you can switch back.
     await setActiveCourseId(null);
     activeCourse = null;
-    renderCourseSetupForm(content);
+    refreshTutorTabState();
+    renderCourseTab();
   });
 
   const addBtn     = content.querySelector('#rh-add-reading-btn');
@@ -1407,24 +1489,18 @@ function renderCourseLoaded(content, course) {
 
     const saveBtn = content.querySelector('#rh-save-reading-btn');
     saveBtn.disabled = true;
-    saveBtn.textContent = '⏳ Saving…';
+    saveBtn.textContent = '⏳ Embedding…';
     status.style.color = '#888';
     status.textContent = '';
 
     try {
-      const reading = {
-        id:         crypto.randomUUID(),
-        course_id:  course.id,
-        title,
-        text,
-        saved_at:   new Date().toISOString(),
-      };
-      await saveReading(reading);
+      // Backend chunks + embeds the reading into the course corpus.
+      const res = await CourseAPI.addReading(course.id, title, text);
       status.style.color = '#48bb78';
-      status.textContent = '✓ Reading saved!';
+      status.textContent = `✓ Saved (${res.chunks} chunk${res.chunks === 1 ? '' : 's'} embedded)`;
       content.querySelector('#rh-reading-text').value  = '';
       content.querySelector('#rh-reading-title').value = '';
-      setTimeout(() => { status.textContent = ''; saveBtn.disabled = false; saveBtn.textContent = 'Save Reading'; }, 2000);
+      setTimeout(() => { status.textContent = ''; saveBtn.disabled = false; saveBtn.textContent = 'Save Reading'; }, 2500);
     } catch (err) {
       status.style.color = '#e53e3e';
       status.textContent = `Error: ${err.message}`;
@@ -1432,6 +1508,137 @@ function renderCourseLoaded(content, course) {
       saveBtn.textContent = 'Save Reading';
     }
   });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ── Tutor tab (RAG chat grounded in the active course) ─────────────────
+// ══════════════════════════════════════════════════════════════════════
+
+/** If the Tutor tab is currently open, re-render it (e.g. after course change). */
+function refreshTutorTabState() {
+  if (currentTab === 'tutor') renderTutorTab();
+}
+
+async function renderTutorTab() {
+  const content = document.getElementById('rh-content');
+  if (!content) return;
+
+  // Need an active course to ground answers.
+  if (!activeCourse) {
+    try {
+      const id = await getActiveCourseId();
+      if (id) activeCourse = await CourseAPI.get(id);
+    } catch { /* handled below */ }
+  }
+
+  if (!activeCourse) {
+    content.innerHTML = `
+      <div style="text-align:center; padding:36px 12px; color:#999;">
+        <div style="font-size:30px; margin-bottom:10px;">🎓</div>
+        <p style="font-size:13px; font-weight:600; color:#666; margin:0 0 6px;">No course selected</p>
+        <p style="font-size:12px; margin:0; line-height:1.5;">
+          Set up or pick a course in the <b>Course</b> tab, then come back to chat with a tutor
+          that knows your material.
+        </p>
+      </div>`;
+    return;
+  }
+
+  content.innerHTML = `
+    <div style="display:flex; flex-direction:column; height:100%; min-height:380px;">
+      <div style="flex-shrink:0; padding:2px 0 10px; border-bottom:1px solid #f0eef8; margin-bottom:10px;">
+        <p style="font-size:12px; color:#667eea; font-weight:700; margin:0;">🎓 ${escapeHtml(activeCourse.name)}</p>
+        <p style="font-size:11px; color:#aaa; margin:2px 0 0;">Answers are grounded in your syllabus &amp; readings.</p>
+      </div>
+
+      <div id="rh-tutor-messages" style="flex:1; overflow-y:auto; padding-right:2px;"></div>
+
+      <div style="flex-shrink:0; display:flex; gap:6px; padding-top:10px; border-top:1px solid #f0eef8; margin-top:8px;">
+        <textarea id="rh-tutor-input" rows="2" placeholder="Ask your tutor anything about the course…"
+          style="flex:1; box-sizing:border-box; padding:8px 10px; border:1.5px solid #d4d8f0;
+            border-radius:8px; font-size:12px; font-family:inherit; resize:none; outline:none; line-height:1.4;"></textarea>
+        <button id="rh-tutor-send" style="
+          flex-shrink:0; width:48px; background:linear-gradient(135deg,#667eea,#764ba2);
+          color:#fff; border:none; border-radius:8px; font-size:18px; cursor:pointer;">➤</button>
+      </div>
+    </div>`;
+
+  renderTutorMessages();
+
+  const input = content.querySelector('#rh-tutor-input');
+  const send  = content.querySelector('#rh-tutor-send');
+  input.addEventListener('focus', () => input.style.borderColor = '#667eea');
+  input.addEventListener('blur',  () => input.style.borderColor = '#d4d8f0');
+  send.addEventListener('click', () => sendTutorMessage());
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTutorMessage(); }
+  });
+}
+
+function renderTutorMessages() {
+  const box = document.getElementById('rh-tutor-messages');
+  if (!box) return;
+
+  if (!tutorMessages.length && !tutorBusy) {
+    box.innerHTML = `
+      <p style="color:#bbb; font-size:12px; text-align:center; padding:24px 8px; line-height:1.6;">
+        Try: <i>"Explain this week's main idea like I'm five"</i> or
+        <i>"How does today's reading connect to last week?"</i>
+      </p>`;
+    return;
+  }
+
+  const bubbles = tutorMessages.map((m) => {
+    if (m.role === 'user') {
+      return `<div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+        <div style="max-width:80%; background:#667eea; color:#fff; padding:8px 11px;
+          border-radius:12px 12px 2px 12px; font-size:12px; line-height:1.5;">${escapeHtml(m.text)}</div>
+      </div>`;
+    }
+    const sources = (m.sources && m.sources.length)
+      ? `<div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
+          ${m.sources.map((s) => `<span style="font-size:10px; background:#eef0fb; color:#667; border:1px solid #d4d8f0; padding:2px 7px; border-radius:10px;">📄 ${escapeHtml(s.title)}</span>`).join('')}
+        </div>`
+      : '';
+    return `<div style="display:flex; justify-content:flex-start; margin-bottom:10px;">
+      <div style="max-width:88%;">
+        <div style="background:#f4f3ff; color:#333; padding:9px 12px; border-radius:12px 12px 12px 2px;
+          font-size:12px; line-height:1.6; white-space:pre-wrap;">${escapeHtml(m.text)}</div>
+        ${sources}
+      </div>
+    </div>`;
+  }).join('');
+
+  const thinking = tutorBusy
+    ? `<div style="display:flex; justify-content:flex-start; margin-bottom:10px;">
+        <div style="background:#f4f3ff; color:#999; padding:9px 12px; border-radius:12px;
+          font-size:12px;">💭 thinking…</div></div>`
+    : '';
+
+  box.innerHTML = bubbles + thinking;
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendTutorMessage() {
+  const input = document.getElementById('rh-tutor-input');
+  if (!input || tutorBusy || !activeCourse) return;
+  const q = input.value.trim();
+  if (q.length < 2) return;
+
+  input.value = '';
+  tutorMessages.push({ role: 'user', text: q });
+  tutorBusy = true;
+  renderTutorMessages();
+
+  try {
+    const res = await CourseAPI.ask(activeCourse.id, q);
+    tutorMessages.push({ role: 'tutor', text: res.answer || '(no answer)', sources: res.sources || [] });
+  } catch (err) {
+    tutorMessages.push({ role: 'tutor', text: `⚠️ ${err.message}`, sources: [] });
+  } finally {
+    tutorBusy = false;
+    renderTutorMessages();
+  }
 }
 
 function renderPapersTab() {
