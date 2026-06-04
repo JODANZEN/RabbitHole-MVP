@@ -7,7 +7,7 @@ export default function Brand({ size = 'md', bunny = true }: { size?: 'sm' | 'md
     <span className={`brand brand-${size}`}>
       {bunny && (
         <img
-          src="/bunny.png"
+          src="/bunnyHead.jpeg"
           alt=""
           className="brand-bunny"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
