@@ -29,8 +29,28 @@ export default function CourseInsights() {
 
         {data && (
           <>
-            <h1>{data.course.name}</h1>
-            <p className="muted">{data.question_count} student question{data.question_count === 1 ? '' : 's'} logged from the tutor.</p>
+            <p className="label" style={{ marginTop: 18 }}>Faculty dashboard — {data.course.name}</p>
+            <h1 style={{ marginTop: 2 }}>Class cohort view</h1>
+
+            <div className="stat-grid">
+              <div className="stat-card">
+                <span className="label">Tutor questions</span>
+                <div className="stat-num">{data.question_count}</div>
+                <div className="stat-sub">logged from the AI tutor</div>
+              </div>
+              <div className="stat-card">
+                <span className="label">Most confused topic</span>
+                <div className="stat-strong">{data.themes[0]?.topic || '—'}</div>
+                <div className="stat-sub">
+                  {data.themes[0] ? `asked ~${data.themes[0].count}× this period` : 'gathering data…'}
+                </div>
+              </div>
+              <div className="stat-card">
+                <span className="label">Confusion areas</span>
+                <div className="stat-num">{data.themes.length}</div>
+                <div className="stat-sub">distinct struggle themes</div>
+              </div>
+            </div>
 
             <h2>Where the class is struggling</h2>
             {data.themes.length === 0 ? (

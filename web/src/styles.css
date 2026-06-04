@@ -1,13 +1,14 @@
 :root {
-  --ink: #0e0e10;          /* near-black */
-  --ink-soft: #2a2a30;
-  --orange: #ff5a1f;       /* brand accent (the dot) */
+  --bg: #0a0a0c;            /* page background (near-black) */
+  --surface: #141417;      /* cards */
+  --surface-2: #1b1b1f;    /* inputs, nested */
+  --ink: #f4f4f6;          /* primary text */
+  --ink-soft: #c9c9d0;
+  --muted: #82828c;        /* labels, secondary */
+  --orange: #ff5a1f;       /* brand accent */
   --orange-dark: #e8480f;
-  --bg: #ffffff;
-  --bg-soft: #faf9f7;      /* off-white */
-  --muted: #76767f;
-  --line: #ececec;
-  --shadow: 0 6px 28px rgba(20, 20, 25, 0.06);
+  --line: #26262d;         /* borders */
+  --shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
 }
 
 * { box-sizing: border-box; }
@@ -21,79 +22,89 @@ body {
 a { color: var(--orange); cursor: pointer; text-decoration: none; font-weight: 600; }
 a:hover { text-decoration: underline; }
 
-h1, h2, h3 { font-family: 'Outfit', sans-serif; letter-spacing: -0.01em; }
+h1, h2, h3 { font-family: 'Outfit', sans-serif; letter-spacing: -0.01em; color: var(--ink); }
 h1 { font-size: 26px; font-weight: 700; margin: 18px 0 6px; }
-h2 { font-size: 16px; font-weight: 600; margin: 28px 0 12px; color: var(--ink); }
+h2 { font-size: 16px; font-weight: 600; margin: 28px 0 12px; }
 
-.center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--bg-soft); }
+.center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--bg); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
+/* Uppercase tracked label, like the mockup's "CLASS COMPREHENSION" */
+.label { font-family: 'Outfit'; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
 
-/* ── Brand wordmark ────────────────────────────────────────────── */
+/* ── Brand ─────────────────────────────────────────────────────── */
 .brand { display: inline-flex; align-items: center; gap: 10px; font-family: 'Outfit', sans-serif; }
 .brand .wordmark { font-weight: 800; letter-spacing: -0.02em; color: var(--ink); line-height: 1; }
 .brand .dot { color: var(--orange); }
-.brand-bunny { height: 1.7em; width: 1.7em; object-fit: contain; border-radius: 7px; }
+.brand-bunny { height: 1.7em; width: 1.7em; object-fit: contain; border-radius: 8px; }
 .brand-sm .wordmark { font-size: 18px; }
 .brand-md .wordmark { font-size: 24px; }
 .brand-lg .wordmark { font-size: 34px; }
 .brand-lg .brand-bunny { height: 1.5em; width: 1.5em; }
 
 /* ── Cards / inputs ────────────────────────────────────────────── */
-.card {
-  background: #fff; border: 1px solid var(--line); border-radius: 16px;
-  padding: 20px; box-shadow: var(--shadow); margin-bottom: 16px;
-}
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 16px; }
 .auth-card { width: 380px; max-width: 100%; text-align: left; }
 .auth-card .brand { margin-bottom: 4px; }
 
 label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-soft); margin: 14px 0 5px; }
 input, textarea {
   width: 100%; padding: 11px 13px; border: 1.5px solid var(--line); border-radius: 11px;
-  font-size: 14px; font-family: inherit; outline: none; transition: border-color .15s; background: #fff;
+  font-size: 14px; font-family: inherit; outline: none; transition: border-color .15s;
+  background: var(--surface-2); color: var(--ink);
 }
-input:focus, textarea:focus { border-color: var(--ink); }
+input::placeholder, textarea::placeholder { color: #5c5c66; }
+input:focus, textarea:focus { border-color: var(--orange); }
 textarea { resize: vertical; line-height: 1.55; }
 
 /* ── Buttons ───────────────────────────────────────────────────── */
-.btn { border: none; border-radius: 11px; padding: 11px 18px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: 'Outfit', sans-serif; transition: transform .08s, background .15s; }
+.btn { border: none; border-radius: 11px; padding: 11px 18px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: 'Outfit', sans-serif; transition: transform .08s, background .15s, border-color .15s; }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--orange); color: #fff; margin-top: 16px; width: 100%; }
 .btn.primary:hover { background: var(--orange-dark); }
-.btn.primary:disabled { opacity: .55; cursor: default; }
-.btn.dark { background: var(--ink); color: #fff; }
-.btn.ghost { background: none; border: 1.5px solid var(--line); color: var(--ink-soft); }
+.btn.primary:disabled { opacity: .5; cursor: default; }
+.btn.dark { background: #fff; color: #0a0a0c; }
+.btn.ghost { background: transparent; border: 1.5px solid var(--line); color: var(--ink-soft); }
+.btn.ghost:hover { border-color: var(--muted); }
 .btn.small { padding: 6px 13px; font-size: 12px; }
 
-.msg { margin-top: 12px; font-size: 13px; color: #b3360f; background: #fff1ec; border: 1px solid #ffd9c9; padding: 9px 12px; border-radius: 10px; }
+.msg { margin-top: 12px; font-size: 13px; color: #ff8a66; background: rgba(255,90,31,.08); border: 1px solid rgba(255,90,31,.25); padding: 9px 12px; border-radius: 10px; }
 
 /* ── Onboarding role picker ────────────────────────────────────── */
 .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
-.role-btn { background: var(--bg-soft); border: 1.5px solid var(--line); border-radius: 14px; padding: 18px 12px; cursor: pointer; text-align: center; transition: border-color .15s, transform .1s; }
+.role-btn { background: var(--surface-2); border: 1.5px solid var(--line); border-radius: 14px; padding: 18px 12px; cursor: pointer; text-align: center; transition: border-color .15s, transform .1s; color: var(--ink); }
 .role-btn:hover { border-color: var(--orange); transform: translateY(-2px); }
 .role-emoji { font-size: 28px; }
 .role-title { font-family: 'Outfit', sans-serif; font-weight: 700; margin: 8px 0 3px; font-size: 14px; }
 
 /* ── App shell ─────────────────────────────────────────────────── */
-.app-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 26px; background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
-.app-header .tag { font-family: 'Outfit'; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #fff; background: var(--ink); padding: 3px 9px; border-radius: 20px; margin-left: 6px; }
+.app-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 26px; background: rgba(10,10,12,.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+.app-header .tag { font-family: 'Outfit'; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: #0a0a0c; background: var(--orange); padding: 3px 9px; border-radius: 20px; margin-left: 8px; }
 .header-right { display: flex; align-items: center; gap: 14px; }
-.container { max-width: 960px; margin: 0 auto; padding: 26px 24px 60px; }
+.container { max-width: 980px; margin: 0 auto; padding: 26px 24px 60px; }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.page { min-height: 100vh; background: var(--bg-soft); }
+.page { min-height: 100vh; background: var(--bg); }
 
-/* ── Grids / cards ─────────────────────────────────────────────── */
+/* ── Stat cards (mockup-style) ─────────────────────────────────── */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 14px 0 8px; }
+.stat-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+.stat-num { font-family: 'Outfit'; font-size: 40px; font-weight: 800; line-height: 1.05; margin: 8px 0 2px; }
+.stat-num small { font-size: 16px; font-weight: 600; color: var(--muted); }
+.stat-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.stat-strong { font-family: 'Outfit'; font-size: 20px; font-weight: 700; margin: 8px 0 2px; line-height: 1.2; }
+.delta-down { color: var(--orange); font-weight: 600; }
+
+/* ── Grids / course cards ──────────────────────────────────────── */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 .course-card { display: block; transition: transform .12s, border-color .12s, box-shadow .12s; }
-.course-card:hover { transform: translateY(-3px); border-color: var(--orange); text-decoration: none; box-shadow: 0 10px 30px rgba(255,90,31,.10); }
+.course-card:hover { transform: translateY(-3px); border-color: var(--orange); text-decoration: none; box-shadow: 0 10px 36px rgba(255,90,31,.12); }
 .course-name { font-family: 'Outfit'; font-weight: 700; font-size: 16px; margin-bottom: 6px; color: var(--ink); }
 
-.theme-card strong { font-family: 'Outfit'; font-size: 14px; }
-.pill { background: #fff1ec; color: var(--orange-dark); border: 1px solid #ffd9c9; border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 700; font-family: 'Outfit'; }
+.theme-card strong { font-family: 'Outfit'; font-size: 14px; color: var(--ink); }
+.pill { background: rgba(255,90,31,.12); color: var(--orange); border: 1px solid rgba(255,90,31,.3); border-radius: 20px; padding: 2px 10px; font-size: 12px; font-weight: 700; font-family: 'Outfit'; }
 
 .q-list { list-style: none; padding: 0; margin: 0; }
-.q-list li { padding: 10px 13px; background: #fff; border: 1px solid var(--line); border-radius: 11px; margin-bottom: 8px; font-size: 13px; }
+.q-list li { padding: 10px 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; margin-bottom: 8px; font-size: 13px; color: var(--ink-soft); }
 
-.tip { background: #fff7f3; border-color: #ffe0d2; font-size: 13px; line-height: 1.65; }
-
+.tip { background: rgba(255,90,31,.06); border-color: rgba(255,90,31,.2); font-size: 13px; line-height: 1.65; }
 .hero-tagline { font-family: 'Outfit'; font-size: 15px; color: var(--muted); margin: 6px 0 2px; line-height: 1.45; }
