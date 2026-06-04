@@ -6,7 +6,6 @@
 chrome.runtime.onInstalled.addListener(() => {
   console.debug('[RabbitHole] Extension installed/updated');
 
-  // Register the right-click "Explain with RabbitHole" context menu item
   chrome.contextMenus.create({
     id: 'rabbithole-dumbify',
     title: '🐇 Explain with RabbitHole',
@@ -16,7 +15,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // ─── Icon click → trigger analysis ─────────────────────────────────
 
-async function sendToTab(tabId, message) {
+async function sendToTab(tabId: number, message: unknown): Promise<boolean> {
   try {
     await chrome.tabs.sendMessage(tabId, message);
     return true;
@@ -25,12 +24,21 @@ async function sendToTab(tabId, message) {
   }
 }
 
-async function injectAndSend(tabId, message) {
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ['content.js'],
-  });
-  // Give the script a moment to initialize
+/** The bundled content-script path is hashed at build time; read it from the manifest. */
+function contentScriptFile(): string | null {
+  const cs = chrome.runtime.getManifest().content_scripts?.[0]?.js?.[0];
+  return cs ?? null;
+}
+
+async function injectAndSend(tabId: number, message: unknown): Promise<boolean> {
+  const file = contentScriptFile();
+  if (!file) return false;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: [file] });
+  } catch (e) {
+    console.debug('[RabbitHole] Injection failed (restricted page?):', e);
+    return false;
+  }
   await new Promise((r) => setTimeout(r, 350));
   return sendToTab(tabId, message);
 }

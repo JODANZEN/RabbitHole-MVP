@@ -302,6 +302,16 @@ FakesAssemblies/
 .ntvs_analysis.dat
 node_modules/
 
+# RabbitHole extension build artifacts
+extension/dist/
+extension/.vite/
+npm-debug.log*
+
+# Python virtualenv
+.venv/
+venv/
+papers/backend/audit_report.json
+
 # Visual Studio 6 build log
 *.plg
 

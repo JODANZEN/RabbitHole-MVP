@@ -1,14 +1,24 @@
+// @ts-nocheck — TODO: progressively remove as this file is split into typed modules.
 /**
- * RabbitHole v0.3 — Content Script
+ * RabbitHole — Content Script (entry)
  *
  * Features:
  *  - Page analysis: difficulty level, summary, key concepts, prerequisites
  *  - Dumbify: select any text → floating "🐇 Explain" button → plain-language explanation
  *  - Paper recommendations: related papers from Semantic Scholar, ranked by complexity
  *  - Research thread: cross-domain session (chrome.storage.local) tracks your learning journey
+ *  - Course: syllabus-grounded analysis (see ./db)
  *
- * Panel tabs: Analysis | Papers | Thread
+ * Panel tabs: Analysis | Papers | Thread | Course
  */
+
+import {
+  getActiveCourse,
+  saveCourse,
+  setActiveCourseId,
+  deleteCourse,
+  saveReading,
+} from './db';
 
 'use strict';
 
