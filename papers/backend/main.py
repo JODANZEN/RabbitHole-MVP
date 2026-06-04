@@ -607,16 +607,18 @@ async def add_reading(course_id: str, body: ReadingCreate):
 
 
 @app.post("/courses/{course_id}/ask")
-async def ask_course(course_id: str, body: AskInput):
+async def ask_course(course_id: str, body: AskInput,
+                     user: Optional[dict] = Depends(get_optional_user)):
     """Answer a question grounded in the course's material (RAG)."""
     _require_db()
     q = body.question.strip()
     if len(q) < 3:
         raise HTTPException(status_code=422, detail="Question is too short")
-    print(f"[RabbitHole] /courses/{course_id}/ask — q='{q[:80]}'")
+    uid = user.get("id") if user else None
+    print(f"[RabbitHole] /courses/{course_id}/ask — q='{q[:80]}' user={uid}")
     try:
         result = await rag.answer_question(course_id, q, body.k or 6, body.history)
-        await rag.log_question(course_id, q)   # fuels the teacher insights view
+        await rag.log_question(course_id, q, uid)   # attributes to the student when signed in
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

@@ -13,6 +13,7 @@
  */
 
 import { getActiveCourseId, setActiveCourseId } from './db';
+import { signIn, signUp, signOut, getCurrentUser, getAccessToken } from './auth';
 
 const GEMINI_API_URL     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const GROQ_API_URL       = 'https://api.groq.com/openai/v1/chat/completions';
@@ -28,10 +29,15 @@ const BACKEND_URL = 'http://127.0.0.1:8000';
 
 async function apiFetch(path, options = {}) {
   let res;
+  const token = await getAccessToken();   // null when signed out
   try {
     res = await fetch(BACKEND_URL + path, {
-      headers: { 'Content-Type': 'application/json' },
       ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
     });
   } catch (e) {
     throw new Error(`Can't reach the RabbitHole backend at ${BACKEND_URL}. Is it running? (cd papers && uvicorn backend.main:app)`);
@@ -725,6 +731,76 @@ function setProviderToggle(panel, primary) {
   rBtn.dataset.active = String(primary === 'groq');
 }
 
+async function renderAccountState() {
+  const el = document.getElementById('rh-account');
+  if (!el) return;
+  const user = await getCurrentUser();
+
+  if (user) {
+    el.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;
+        background:#fff; border:1px solid #ececec; border-radius:8px; padding:8px 10px;">
+        <div style="min-width:0;">
+          <div style="font-size:12px; font-weight:600; color:#1f9d55;">✓ Signed in</div>
+          <div style="font-size:11px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(user.email)}</div>
+        </div>
+        <button id="rh-signout" style="font-size:11px; background:none; border:1px solid #ddd;
+          border-radius:6px; padding:4px 10px; cursor:pointer; color:#888; white-space:nowrap;">Sign out</button>
+      </div>`;
+    el.querySelector('#rh-signout').addEventListener('click', async () => {
+      await signOut();
+      renderAccountState();
+    });
+    return;
+  }
+
+  const inputStyle = `width:100%; box-sizing:border-box; padding:7px 9px; border:1.5px solid #ececec;
+    border-radius:7px; font-size:12px; outline:none; margin-bottom:6px;`;
+  el.innerHTML = `
+    <input id="rh-auth-email" type="email" placeholder="you@university.edu" style="${inputStyle}" />
+    <input id="rh-auth-pass" type="password" placeholder="password" style="${inputStyle}" />
+    <div style="display:flex; gap:6px;">
+      <button id="rh-signin" style="flex:1; padding:8px; background:#ff5a1f; color:#fff; border:none;
+        border-radius:7px; font-size:12px; font-weight:600; cursor:pointer;">Sign in</button>
+      <button id="rh-signup" style="flex:1; padding:8px; background:#fff; color:#666; border:1.5px solid #ececec;
+        border-radius:7px; font-size:12px; font-weight:600; cursor:pointer;">Sign up</button>
+    </div>
+    <div id="rh-auth-status" style="font-size:11px; text-align:center; min-height:14px; margin-top:6px; color:#e53e3e;"></div>
+    <p style="font-size:10px; color:#aaa; margin:4px 0 0; line-height:1.4;">
+      Sign in so your tutor questions count toward your class.
+    </p>`;
+
+  const emailEl = el.querySelector('#rh-auth-email');
+  const passEl  = el.querySelector('#rh-auth-pass');
+  const statusEl = el.querySelector('#rh-auth-status');
+
+  async function doAuth(mode) {
+    const email = emailEl.value.trim();
+    const pass  = passEl.value;
+    if (!email || pass.length < 6) { statusEl.style.color = '#e53e3e'; statusEl.textContent = 'Enter email + password (6+ chars).'; return; }
+    statusEl.style.color = '#888'; statusEl.textContent = '…';
+    try {
+      if (mode === 'signup') {
+        const { needsConfirm } = await signUp(email, pass);
+        if (needsConfirm) {
+          statusEl.style.color = '#888';
+          statusEl.textContent = 'Account made — confirm via email, then sign in.';
+          return;
+        }
+      } else {
+        await signIn(email, pass);
+      }
+      renderAccountState();
+    } catch (err) {
+      statusEl.style.color = '#e53e3e';
+      statusEl.textContent = err.message;
+    }
+  }
+
+  el.querySelector('#rh-signin').addEventListener('click', () => doAuth('signin'));
+  el.querySelector('#rh-signup').addEventListener('click', () => doAuth('signup'));
+}
+
 function ensurePanel() {
   if (document.getElementById('rabbithole-panel')) return;
 
@@ -769,6 +845,10 @@ function ensurePanel() {
       display:none; flex-shrink:0; padding:14px 16px;
       background:#fafafa; border-bottom:1px solid #ececec;
     ">
+      <p style="font-size:11px; font-weight:700; color:#555; text-transform:uppercase;
+        letter-spacing:.05em; margin:0 0 8px;">Account</p>
+      <div id="rh-account" style="margin-bottom:16px;"></div>
+
       <p style="font-size:11px; font-weight:700; color:#555; text-transform:uppercase;
         letter-spacing:.05em; margin:0 0 10px;">API Keys</p>
 
@@ -920,6 +1000,7 @@ function ensurePanel() {
       if (gemini) panel.querySelector('#rh-gemini-key-input').value = gemini;
       if (groq)   panel.querySelector('#rh-groq-key-input').value   = groq;
       setProviderToggle(panel, primary);
+      renderAccountState();
     }
   });
 
