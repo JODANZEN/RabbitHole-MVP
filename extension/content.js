@@ -708,6 +708,7 @@ function ensurePanel() {
       padding: 12px 16px; display: flex; align-items: center; gap: 8px;
       background: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
       border-radius: 12px 12px 0 0; flex-shrink: 0;
+      cursor: move; user-select: none;
     ">
       <span style="font-size:16px;">🐇</span>
       <span style="font-weight:700; color:#fff; font-size:15px; flex:1;">RabbitHole</span>
@@ -734,7 +735,7 @@ function ensurePanel() {
         letter-spacing:.05em; margin:0 0 10px;">API Keys</p>
 
       <label style="font-size:11px; color:#666; font-weight:600;">
-        Gemini <span style="font-weight:400; color:#aaa;">(primary · <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
+        Gemini <span style="font-weight:400; color:#aaa;">(<a href="https://aistudio.google.com/apikey" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
       </label>
       <div style="display:flex; gap:6px; margin:4px 0 10px;">
         <input id="rh-gemini-key-input" type="password" placeholder="AIza…"
@@ -745,7 +746,7 @@ function ensurePanel() {
       </div>
 
       <label style="font-size:11px; color:#666; font-weight:600;">
-        Groq <span style="font-weight:400; color:#aaa;">(fallback · <a href="https://console.groq.com/keys" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
+        Groq <span style="font-weight:400; color:#aaa;">(<a href="https://console.groq.com/keys" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
       </label>
       <div style="display:flex; gap:6px; margin:4px 0 12px;">
         <input id="rh-groq-key-input" type="password" placeholder="gsk_…"
@@ -818,6 +819,48 @@ function ensurePanel() {
   `;
 
   document.body.appendChild(panel);
+
+  // ── Draggable panel (grab the header to move) ──────────────────────
+  (function makeDraggable() {
+    const header = panel.querySelector('#rh-header');
+    let dragging = false;
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+    header.addEventListener('mousedown', (e) => {
+      // Ignore drags that start on the header buttons (gear / close)
+      if (e.target.closest('button')) return;
+
+      dragging = true;
+      const rect = panel.getBoundingClientRect();
+      // Switch from right-anchored to left/top-anchored so we can move freely
+      startLeft = rect.left;
+      startTop  = rect.top;
+      startX    = e.clientX;
+      startY    = e.clientY;
+      panel.style.right  = 'auto';
+      panel.style.left   = startLeft + 'px';
+      panel.style.top    = startTop + 'px';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      // Keep the panel within the viewport
+      const w = panel.offsetWidth, h = panel.offsetHeight;
+      const newLeft = Math.max(0, Math.min(startLeft + dx, window.innerWidth  - w));
+      const newTop  = Math.max(0, Math.min(startTop  + dy, window.innerHeight - h));
+      panel.style.left = newLeft + 'px';
+      panel.style.top  = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+      document.body.style.userSelect = '';
+    });
+  })();
 
   // Close button
   panel.querySelector('#rh-close').addEventListener('click', () => {
