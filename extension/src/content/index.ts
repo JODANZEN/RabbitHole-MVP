@@ -51,7 +51,7 @@ const CourseAPI = {
   list:       ()                   => apiFetch('/courses'),
   remove:     (id)                 => apiFetch('/courses/' + id, { method: 'DELETE' }),
   addReading: (id, title, text)    => apiFetch(`/courses/${id}/readings`, { method: 'POST', body: JSON.stringify({ title, text }) }),
-  ask:        (id, question)       => apiFetch(`/courses/${id}/ask`, { method: 'POST', body: JSON.stringify({ question }) }),
+  ask:        (id, question, history) => apiFetch(`/courses/${id}/ask`, { method: 'POST', body: JSON.stringify({ question, history }) }),
 };
 
 // ── API key helpers ────────────────────────────────────────────────────
@@ -1724,12 +1724,14 @@ async function sendTutorMessage() {
   if (q.length < 2) return;
 
   input.value = '';
+  // Snapshot the recent conversation BEFORE adding the new question.
+  const history = tutorMessages.slice(-6).map((m) => ({ role: m.role, text: m.text }));
   tutorMessages.push({ role: 'user', text: q });
   tutorBusy = true;
   renderTutorMessages();
 
   try {
-    const res = await CourseAPI.ask(activeCourse.id, q);
+    const res = await CourseAPI.ask(activeCourse.id, q, history);
     const answer = res.answer || '(no answer)';
     tutorMessages.push({ role: 'tutor', text: answer, sources: res.sources || [] });
     speakAnswer(answer);

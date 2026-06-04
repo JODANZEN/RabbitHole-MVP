@@ -181,13 +181,23 @@ async def ingest_reading(course_id: str, title: str, text: str) -> Dict[str, Any
     return {"reading_id": reading_id, "title": title, "chunks": stored}
 
 
-async def answer_question(course_id: str, question: str, k: int = 6) -> Dict[str, Any]:
-    """Retrieve the most relevant course chunks and answer grounded in them."""
+async def answer_question(course_id: str, question: str, k: int = 6,
+                          history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    """Retrieve the most relevant course chunks and answer grounded in them.
+
+    `history` is the recent conversation [{role: 'user'|'tutor', text}], used so the
+    tutor can resolve follow-ups like "explain that more" or "i meant the course".
+    """
     course = await run_in_threadpool(_get_course, course_id)
     if not course:
         raise ValueError("Course not found")
 
-    qvec = await embed_text(question)
+    # Embed the question together with a little recent context so retrieval
+    # follows the thread of the conversation, not just the latest words.
+    recent_user = " ".join(
+        m.get("text", "") for m in (history or [])[-4:] if m.get("role") == "user"
+    )
+    qvec = await embed_text((recent_user + " " + question).strip())
     hits = await run_in_threadpool(_retrieve, course_id, qvec, k)
 
     if hits:
@@ -197,14 +207,29 @@ async def answer_question(course_id: str, question: str, k: int = 6) -> Dict[str
     else:
         context = "(no course material has been added yet)"
 
-    prompt = f"""You are RabbitHole, a focused tutor for the course "{course['name']}".
+    history_block = ""
+    if history:
+        lines = []
+        for m in history[-6:]:
+            who = "Student" if m.get("role") == "user" else "Tutor"
+            txt = (m.get("text") or "").strip()
+            if txt:
+                lines.append(f"{who}: {txt}")
+        if lines:
+            history_block = "CONVERSATION SO FAR:\n" + "\n".join(lines) + "\n\n"
 
-Answer the student's question. Prefer the COURSE MATERIAL excerpts below when they are
-relevant, and refer to them naturally (e.g. "as your Week 3 reading covers..."). If the
-material does not cover the question, say so briefly, then answer from general knowledge.
-Be clear, encouraging, and concise.
+    prompt = f"""You are RabbitHole, a sharp, friendly tutor for the course "{course['name']}".
 
-COURSE MATERIAL:
+Use the conversation so far to understand follow-up questions (e.g. "the course", "that topic").
+Ground your answer in the COURSE MATERIAL excerpts below when they are relevant.
+
+Rules:
+- Be direct and concise. Answer the question, then stop.
+- Do NOT pad with encouragement, disclaimers, or "I'm here to help" filler.
+- Only cite a source (e.g. a week or reading) if it ACTUALLY appears in the excerpts. Never invent week numbers or reading titles.
+- If the material doesn't cover it, answer briefly from general knowledge without a long apology.
+
+{history_block}COURSE MATERIAL:
 {context}
 
 STUDENT QUESTION: {question}

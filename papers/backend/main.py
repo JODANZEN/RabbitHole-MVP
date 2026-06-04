@@ -138,6 +138,7 @@ class ReadingCreate(BaseModel):
 class AskInput(BaseModel):
     question: str
     k: Optional[int] = 6
+    history: Optional[List[dict]] = None   # [{role: 'user'|'tutor', text}]
 
 
 # ─── Analysis endpoint ───────────────────────────────────────────────
@@ -515,7 +516,7 @@ async def ask_course(course_id: str, body: AskInput):
         raise HTTPException(status_code=422, detail="Question is too short")
     print(f"[RabbitHole] /courses/{course_id}/ask — q='{q[:80]}'")
     try:
-        return await rag.answer_question(course_id, q, body.k or 6)
+        return await rag.answer_question(course_id, q, body.k or 6, body.history)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
