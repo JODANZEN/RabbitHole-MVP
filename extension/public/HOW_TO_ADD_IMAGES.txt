@@ -1,0 +1,4 @@
+Drop icon images here for the extension:
+- bunny.png        (panel header mascot)
+- icon-16.png, icon-48.png, icon-128.png  (toolbar icons)
+Then tell me and I will wire them into the manifest.

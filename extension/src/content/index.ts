@@ -717,8 +717,8 @@ function setProviderToggle(panel, primary) {
   const gBtn = panel.querySelector('#rh-primary-gemini');
   const rBtn = panel.querySelector('#rh-primary-groq');
   if (!gBtn || !rBtn) return;
-  const active   = 'border:1.5px solid #667eea; background:#667eea; color:#fff;';
-  const inactive = 'border:1.5px solid #d4d8f0; background:#fff; color:#888;';
+  const active   = 'border:1.5px solid #ff5a1f; background:#ff5a1f; color:#fff;';
+  const inactive = 'border:1.5px solid #ececec; background:#fff; color:#888;';
   gBtn.style.cssText += primary === 'gemini' ? active : inactive;
   rBtn.style.cssText += primary === 'groq'   ? active : inactive;
   gBtn.dataset.active = String(primary === 'gemini');
@@ -744,12 +744,12 @@ function ensurePanel() {
     <!-- Header -->
     <div id="rh-header" style="
       padding: 12px 16px; display: flex; align-items: center; gap: 8px;
-      background: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+      background: #0e0e10;
       border-radius: 12px 12px 0 0; flex-shrink: 0;
       cursor: move; user-select: none;
     ">
       <span style="font-size:16px;">🐇</span>
-      <span style="font-weight:700; color:#fff; font-size:15px; flex:1;">RabbitHole</span>
+      <span style="font-weight:800; color:#fff; font-size:15px; flex:1; letter-spacing:-0.02em;">RabbitHole<span style="color:#ff5a1f;">.</span></span>
       <span id="rh-session-badge" style="
         display:none; font-size:10px; background:rgba(255,255,255,0.22);
         color:#fff; padding:2px 8px; border-radius:10px; white-space:nowrap;
@@ -767,30 +767,30 @@ function ensurePanel() {
     <!-- Settings overlay (hidden by default) -->
     <div id="rh-settings-overlay" style="
       display:none; flex-shrink:0; padding:14px 16px;
-      background:#fafafa; border-bottom:1px solid #e8e5f5;
+      background:#fafafa; border-bottom:1px solid #ececec;
     ">
       <p style="font-size:11px; font-weight:700; color:#555; text-transform:uppercase;
         letter-spacing:.05em; margin:0 0 10px;">API Keys</p>
 
       <label style="font-size:11px; color:#666; font-weight:600;">
-        Gemini <span style="font-weight:400; color:#aaa;">(<a href="https://aistudio.google.com/apikey" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
+        Gemini <span style="font-weight:400; color:#aaa;">(<a href="https://aistudio.google.com/apikey" target="_blank" style="color:#ff5a1f; text-decoration:none;">get free key</a>)</span>
       </label>
       <div style="display:flex; gap:6px; margin:4px 0 10px;">
         <input id="rh-gemini-key-input" type="password" placeholder="AIza…"
-          style="flex:1; padding:7px 9px; border:1.5px solid #d4d8f0; border-radius:7px;
+          style="flex:1; padding:7px 9px; border:1.5px solid #ececec; border-radius:7px;
             font-size:12px; font-family:monospace; outline:none;" />
-        <button id="rh-gemini-vis" style="padding:6px 9px; border:1.5px solid #d4d8f0;
+        <button id="rh-gemini-vis" style="padding:6px 9px; border:1.5px solid #ececec;
           border-radius:7px; background:#f4f4ff; cursor:pointer; font-size:12px;">👁</button>
       </div>
 
       <label style="font-size:11px; color:#666; font-weight:600;">
-        Groq <span style="font-weight:400; color:#aaa;">(<a href="https://console.groq.com/keys" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
+        Groq <span style="font-weight:400; color:#aaa;">(<a href="https://console.groq.com/keys" target="_blank" style="color:#ff5a1f; text-decoration:none;">get free key</a>)</span>
       </label>
       <div style="display:flex; gap:6px; margin:4px 0 12px;">
         <input id="rh-groq-key-input" type="password" placeholder="gsk_…"
-          style="flex:1; padding:7px 9px; border:1.5px solid #d4d8f0; border-radius:7px;
+          style="flex:1; padding:7px 9px; border:1.5px solid #ececec; border-radius:7px;
             font-size:12px; font-family:monospace; outline:none;" />
-        <button id="rh-groq-vis" style="padding:6px 9px; border:1.5px solid #d4d8f0;
+        <button id="rh-groq-vis" style="padding:6px 9px; border:1.5px solid #ececec;
           border-radius:7px; background:#f4f4ff; cursor:pointer; font-size:12px;">👁</button>
       </div>
 
@@ -798,17 +798,17 @@ function ensurePanel() {
         letter-spacing:.05em; margin:0 0 6px;">Primary provider</p>
       <div style="display:flex; gap:6px; margin-bottom:12px;">
         <button id="rh-primary-gemini" data-val="gemini" style="
-          flex:1; padding:7px; border:1.5px solid #667eea; border-radius:7px;
-          background:#667eea; color:#fff; font-size:12px; font-weight:600; cursor:pointer;
+          flex:1; padding:7px; border:1.5px solid #ff5a1f; border-radius:7px;
+          background:#ff5a1f; color:#fff; font-size:12px; font-weight:600; cursor:pointer;
         ">Gemini</button>
         <button id="rh-primary-groq" data-val="groq" style="
-          flex:1; padding:7px; border:1.5px solid #d4d8f0; border-radius:7px;
+          flex:1; padding:7px; border:1.5px solid #ececec; border-radius:7px;
           background:#fff; color:#888; font-size:12px; font-weight:600; cursor:pointer;
         ">Groq</button>
       </div>
 
       <button id="rh-save-keys-btn" style="
-        width:100%; padding:9px; background:linear-gradient(135deg,#667eea,#764ba2);
+        width:100%; padding:9px; background:linear-gradient(135deg,#ff5a1f,#e8480f);
         color:#fff; border:none; border-radius:7px; font-size:12px;
         font-weight:600; cursor:pointer;
       ">Save Keys</button>
@@ -817,19 +817,19 @@ function ensurePanel() {
 
     <!-- Session bar -->
     <div id="rh-session-bar" style="
-      padding:8px 16px; background:#f8f7ff;
-      border-bottom:1px solid #e8e5f5; flex-shrink:0;
+      padding:8px 16px; background:#fff7f3;
+      border-bottom:1px solid #ececec; flex-shrink:0;
     "></div>
 
     <!-- Tabs -->
     <div id="rh-tabs" style="
-      display:flex; border-bottom:1px solid #e8e5f5; flex-shrink:0;
+      display:flex; border-bottom:1px solid #ececec; flex-shrink:0;
       background:#fafafa;
     ">
       <button class="rh-tab-btn" data-tab="analysis" style="
         flex:1; padding:9px 4px; border:none; background:none; cursor:pointer;
-        font-size:12px; font-weight:600; color:#667eea;
-        border-bottom:2px solid #667eea;
+        font-size:12px; font-weight:600; color:#ff5a1f;
+        border-bottom:2px solid #ff5a1f;
       ">Analysis</button>
       <button class="rh-tab-btn" data-tab="papers" style="
         flex:1; padding:9px 4px; border:none; background:none; cursor:pointer;
@@ -975,8 +975,8 @@ function switchTab(name) {
   currentTab = name;
   document.querySelectorAll('.rh-tab-btn').forEach((btn) => {
     const active = btn.dataset.tab === name;
-    btn.style.color           = active ? '#667eea' : '#aaa';
-    btn.style.borderBottom    = active ? '2px solid #667eea' : '2px solid transparent';
+    btn.style.color           = active ? '#ff5a1f' : '#aaa';
+    btn.style.borderBottom    = active ? '2px solid #ff5a1f' : '2px solid transparent';
   });
 
   if (name === 'analysis') {
@@ -1002,7 +1002,7 @@ async function renderSessionBar() {
   if (session) {
     bar.innerHTML = `
       <div style="display:flex; align-items:center; justify-content:space-between;">
-        <span style="font-size:12px; color:#667eea; font-weight:600;">🟣 In Rabbithole</span>
+        <span style="font-size:12px; color:#ff5a1f; font-weight:600;">🟠 In RabbitHole</span>
         <button id="rh-end-session" style="
           font-size:11px; background:none; border:1px solid #ccc;
           border-radius:4px; padding:3px 10px; cursor:pointer; color:#888;
@@ -1022,7 +1022,7 @@ async function renderSessionBar() {
       <button id="rh-enter-session" style="
         width:100%; padding:8px; border:none; border-radius:6px; cursor:pointer;
         font-size:13px; font-weight:600; color:#fff;
-        background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+        background:linear-gradient(135deg,#ff5a1f 0%,#e8480f 100%);
       ">Enter Rabbithole</button>
     `;
     if (badge) badge.style.display = 'none';
@@ -1045,7 +1045,7 @@ async function renderSessionBar() {
 function showLoading(msg = 'Analyzing… please wait') {
   const el = document.getElementById('rh-content');
   if (el) el.innerHTML = `
-    <div style="text-align:center; padding:32px 0; color:#667eea;">
+    <div style="text-align:center; padding:32px 0; color:#ff5a1f;">
       <div style="font-size:28px; margin-bottom:12px;">🐇</div>
       <p style="font-weight:600; margin:0;">${escapeHtml(msg)}</p>
     </div>
@@ -1119,7 +1119,7 @@ function renderAnalysis(data) {
   const chipsHtml = concepts.map((c) => {
     const safe = escapeHtml(c);
     return `<span class="rh-chip" data-concept="${safe}"
-      style="display:inline-block; background:#eef0fb; border:1px solid #d4d8f0;
+      style="display:inline-block; background:#fff1ec; border:1px solid #ececec;
         padding:4px 10px; border-radius:14px; margin:0 4px 4px 0; font-size:12px;
         cursor:pointer; white-space:nowrap;">${safe}</span>`;
   }).join('');
@@ -1156,7 +1156,7 @@ function renderAnalysis(data) {
     </div>
 
     <!-- Learning path cards -->
-    ${rhCard('Prerequisite', escapeHtml(data.prerequisite), '#667eea')}
+    ${rhCard('Prerequisite', escapeHtml(data.prerequisite), '#ff5a1f')}
     ${rhCard('Start here (easier)', escapeHtml(data.easier), '#48bb78')}
     ${rhCard('Go deeper', escapeHtml(data.deeper), '#ed8936')}
 
@@ -1174,7 +1174,7 @@ function renderAnalysis(data) {
   // Concept chip hover + click
   document.querySelectorAll('.rh-chip').forEach((chip) => {
     chip.addEventListener('mouseenter', () => { chip.style.background = '#dde1f7'; });
-    chip.addEventListener('mouseleave', () => { chip.style.background = '#eef0fb'; });
+    chip.addEventListener('mouseleave', () => { chip.style.background = '#fff1ec'; });
     chip.addEventListener('click', async () => {
       const concept = chip.getAttribute('data-concept');
       window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(concept)}`, '_blank');
@@ -1276,7 +1276,7 @@ async function renderCourseSetupForm(content) {
       ${existing.map((c) => `
         <div class="rh-course-pick" data-id="${escapeHtml(c.id)}" style="
           display:flex; align-items:center; justify-content:space-between; gap:8px;
-          padding:8px 10px; border:1px solid #e8e5f5; border-radius:8px; margin-bottom:6px;
+          padding:8px 10px; border:1px solid #ececec; border-radius:8px; margin-bottom:6px;
           cursor:pointer; background:#fafaff;">
           <span style="font-size:12px; font-weight:600; color:#333;">🎓 ${escapeHtml(c.name)}</span>
           <span style="display:flex; gap:8px; align-items:center;">
@@ -1302,7 +1302,7 @@ async function renderCourseSetupForm(content) {
       </label>
       <input id="rh-course-name" type="text" placeholder="e.g. ECON 301 — Macroeconomics"
         style="width:100%; box-sizing:border-box; margin:5px 0 12px; padding:8px 10px;
-          border:1.5px solid #d4d8f0; border-radius:8px; font-size:13px; outline:none;
+          border:1.5px solid #ececec; border-radius:8px; font-size:13px; outline:none;
           font-family:inherit;" />
 
       <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:.04em;">
@@ -1310,11 +1310,11 @@ async function renderCourseSetupForm(content) {
       </label>
       <textarea id="rh-syllabus-text" rows="8" placeholder="Paste your course syllabus here…"
         style="width:100%; box-sizing:border-box; margin:5px 0 14px; padding:8px 10px;
-          border:1.5px solid #d4d8f0; border-radius:8px; font-size:12px; outline:none;
+          border:1.5px solid #ececec; border-radius:8px; font-size:12px; outline:none;
           font-family:inherit; resize:vertical; line-height:1.5;"></textarea>
 
       <button id="rh-setup-course-btn" style="
-        width:100%; padding:10px; background:linear-gradient(135deg,#667eea,#764ba2);
+        width:100%; padding:10px; background:linear-gradient(135deg,#ff5a1f,#e8480f);
         color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600;
         cursor:pointer;
       ">Set Up Course →</button>
@@ -1328,10 +1328,10 @@ async function renderCourseSetupForm(content) {
   const btn       = content.querySelector('#rh-setup-course-btn');
   const statusEl  = content.querySelector('#rh-course-status');
 
-  nameInput.addEventListener('focus', () => nameInput.style.borderColor = '#667eea');
-  nameInput.addEventListener('blur',  () => nameInput.style.borderColor = '#d4d8f0');
-  textarea.addEventListener('focus',  () => textarea.style.borderColor  = '#667eea');
-  textarea.addEventListener('blur',   () => textarea.style.borderColor  = '#d4d8f0');
+  nameInput.addEventListener('focus', () => nameInput.style.borderColor = '#ff5a1f');
+  nameInput.addEventListener('blur',  () => nameInput.style.borderColor = '#ececec');
+  textarea.addEventListener('focus',  () => textarea.style.borderColor  = '#ff5a1f');
+  textarea.addEventListener('blur',   () => textarea.style.borderColor  = '#ececec');
 
   // Activate an existing course
   content.querySelectorAll('.rh-course-pick').forEach((row) => {
@@ -1396,15 +1396,15 @@ function renderCourseLoaded(content, course) {
 
   const weeksHtml = weeks.length
     ? weeks.map((w) => `
-        <div style="padding:6px 0; border-bottom:1px solid #f0eef8; display:flex; gap:8px; align-items:baseline;">
-          <span style="font-size:11px; font-weight:700; color:#667eea; white-space:nowrap; min-width:48px;">Wk ${w.week}</span>
+        <div style="padding:6px 0; border-bottom:1px solid #f3f0ee; display:flex; gap:8px; align-items:baseline;">
+          <span style="font-size:11px; font-weight:700; color:#ff5a1f; white-space:nowrap; min-width:48px;">Wk ${w.week}</span>
           <span style="font-size:12px; color:#333; line-height:1.4;">${escapeHtml(w.topic || '')}</span>
         </div>`).join('')
     : '<p style="color:#aaa; font-size:12px; margin:0;">No weekly schedule found in syllabus.</p>';
 
   const conceptsHtml = concepts.length
     ? concepts.map((c) => `<span style="
-        display:inline-block; background:#eef0fb; border:1px solid #d4d8f0;
+        display:inline-block; background:#fff1ec; border:1px solid #ececec;
         padding:3px 9px; border-radius:12px; font-size:11px; color:#555;
         margin:0 4px 4px 0;">${escapeHtml(c)}</span>`).join('')
     : '';
@@ -1433,7 +1433,7 @@ function renderCourseLoaded(content, course) {
 
       <!-- Weekly schedule -->
       <p class="rh-section-label" style="margin-bottom:6px;">Weekly schedule</p>
-      <div style="margin-bottom:14px; max-height:200px; overflow-y:auto; border:1px solid #f0eef8; border-radius:8px; padding:0 10px;">
+      <div style="margin-bottom:14px; max-height:200px; overflow-y:auto; border:1px solid #f3f0ee; border-radius:8px; padding:0 10px;">
         ${weeksHtml}
       </div>
 
@@ -1445,22 +1445,22 @@ function renderCourseLoaded(content, course) {
 
       <!-- Add reading -->
       <button id="rh-add-reading-btn" style="
-        width:100%; padding:9px; background:#f4f3ff; color:#667eea;
-        border:1.5px dashed #c5bff5; border-radius:8px; font-size:12px;
+        width:100%; padding:9px; background:#fff7f3; color:#ff5a1f;
+        border:1.5px dashed #ffc6ad; border-radius:8px; font-size:12px;
         font-weight:600; cursor:pointer; margin-bottom:6px;
       ">+ Add a reading</button>
 
       <div id="rh-reading-form" style="display:none; margin-top:10px;">
         <textarea id="rh-reading-text" rows="5" placeholder="Paste the reading text here…"
           style="width:100%; box-sizing:border-box; padding:8px 10px;
-            border:1.5px solid #d4d8f0; border-radius:8px; font-size:12px;
+            border:1.5px solid #ececec; border-radius:8px; font-size:12px;
             font-family:inherit; resize:vertical; margin-bottom:8px; outline:none;"></textarea>
         <input id="rh-reading-title" type="text" placeholder="Reading title (optional)"
           style="width:100%; box-sizing:border-box; padding:7px 10px;
-            border:1.5px solid #d4d8f0; border-radius:8px; font-size:12px;
+            border:1.5px solid #ececec; border-radius:8px; font-size:12px;
             font-family:inherit; margin-bottom:8px; outline:none;" />
         <button id="rh-save-reading-btn" style="
-          width:100%; padding:9px; background:linear-gradient(135deg,#667eea,#764ba2);
+          width:100%; padding:9px; background:linear-gradient(135deg,#ff5a1f,#e8480f);
           color:#fff; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer;
         ">Save Reading</button>
         <div id="rh-reading-status" style="margin-top:8px; font-size:12px; text-align:center; min-height:14px;"></div>
@@ -1549,30 +1549,30 @@ async function renderTutorTab() {
 
   content.innerHTML = `
     <div style="display:flex; flex-direction:column; height:100%; min-height:380px;">
-      <div style="flex-shrink:0; padding:2px 0 10px; border-bottom:1px solid #f0eef8; margin-bottom:10px;
+      <div style="flex-shrink:0; padding:2px 0 10px; border-bottom:1px solid #f3f0ee; margin-bottom:10px;
         display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
         <div>
-          <p style="font-size:12px; color:#667eea; font-weight:700; margin:0;">🎓 ${escapeHtml(activeCourse.name)}</p>
+          <p style="font-size:12px; color:#ff5a1f; font-weight:700; margin:0;">🎓 ${escapeHtml(activeCourse.name)}</p>
           <p style="font-size:11px; color:#aaa; margin:2px 0 0;">Answers are grounded in your syllabus &amp; readings.</p>
         </div>
         <button id="rh-tts-toggle" title="Read answers aloud" style="
-          flex-shrink:0; background:${ttsEnabled ? '#eef0fb' : 'none'}; border:1px solid ${ttsEnabled ? '#667eea' : '#ddd'};
+          flex-shrink:0; background:${ttsEnabled ? '#fff1ec' : 'none'}; border:1px solid ${ttsEnabled ? '#ff5a1f' : '#ddd'};
           border-radius:6px; padding:4px 8px; cursor:pointer; font-size:13px;
-          color:${ttsEnabled ? '#667eea' : '#999'};">${ttsEnabled ? '🔊' : '🔇'}</button>
+          color:${ttsEnabled ? '#ff5a1f' : '#999'};">${ttsEnabled ? '🔊' : '🔇'}</button>
       </div>
 
       <div id="rh-tutor-messages" style="flex:1; overflow-y:auto; padding-right:2px;"></div>
 
-      <div style="flex-shrink:0; display:flex; gap:6px; padding-top:10px; border-top:1px solid #f0eef8; margin-top:8px;">
+      <div style="flex-shrink:0; display:flex; gap:6px; padding-top:10px; border-top:1px solid #f3f0ee; margin-top:8px;">
         <textarea id="rh-tutor-input" rows="2" placeholder="Ask your tutor, or tap 🎤 to speak…"
-          style="flex:1; box-sizing:border-box; padding:8px 10px; border:1.5px solid #d4d8f0;
+          style="flex:1; box-sizing:border-box; padding:8px 10px; border:1.5px solid #ececec;
             border-radius:8px; font-size:12px; font-family:inherit; resize:none; outline:none; line-height:1.4;"></textarea>
         <div style="display:flex; flex-direction:column; gap:6px;">
           <button id="rh-tutor-mic" title="Speak your question" style="
-            flex-shrink:0; width:48px; flex:1; background:#f4f3ff; border:1.5px solid #d4d8f0;
+            flex-shrink:0; width:48px; flex:1; background:#fff7f3; border:1.5px solid #ececec;
             border-radius:8px; font-size:16px; cursor:pointer;">🎤</button>
           <button id="rh-tutor-send" title="Send" style="
-            flex-shrink:0; width:48px; flex:1; background:linear-gradient(135deg,#667eea,#764ba2);
+            flex-shrink:0; width:48px; flex:1; background:linear-gradient(135deg,#ff5a1f,#e8480f);
             color:#fff; border:none; border-radius:8px; font-size:16px; cursor:pointer;">➤</button>
         </div>
       </div>
@@ -1584,8 +1584,8 @@ async function renderTutorTab() {
   const send  = content.querySelector('#rh-tutor-send');
   const mic   = content.querySelector('#rh-tutor-mic');
   const tts   = content.querySelector('#rh-tts-toggle');
-  input.addEventListener('focus', () => input.style.borderColor = '#667eea');
-  input.addEventListener('blur',  () => input.style.borderColor = '#d4d8f0');
+  input.addEventListener('focus', () => input.style.borderColor = '#ff5a1f');
+  input.addEventListener('blur',  () => input.style.borderColor = '#ececec');
   send.addEventListener('click', () => sendTutorMessage());
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTutorMessage(); }
@@ -1598,9 +1598,9 @@ async function renderTutorTab() {
     ttsEnabled = !ttsEnabled;
     if (!ttsEnabled) try { window.speechSynthesis.cancel(); } catch {}
     tts.textContent       = ttsEnabled ? '🔊' : '🔇';
-    tts.style.background   = ttsEnabled ? '#eef0fb' : 'none';
-    tts.style.borderColor  = ttsEnabled ? '#667eea' : '#ddd';
-    tts.style.color        = ttsEnabled ? '#667eea' : '#999';
+    tts.style.background   = ttsEnabled ? '#fff1ec' : 'none';
+    tts.style.borderColor  = ttsEnabled ? '#ff5a1f' : '#ddd';
+    tts.style.color        = ttsEnabled ? '#ff5a1f' : '#999';
   });
 }
 
@@ -1610,8 +1610,8 @@ function setMicListeningUI(on) {
   const mic = document.getElementById('rh-tutor-mic');
   if (!mic) return;
   mic.textContent      = on ? '⏹' : '🎤';
-  mic.style.background  = on ? '#ffe9e9' : '#f4f3ff';
-  mic.style.borderColor = on ? '#e57373' : '#d4d8f0';
+  mic.style.background  = on ? '#ffe9e9' : '#fff7f3';
+  mic.style.borderColor = on ? '#e57373' : '#ececec';
 }
 
 function toggleMic() {
@@ -1689,18 +1689,18 @@ function renderTutorMessages() {
   const bubbles = tutorMessages.map((m) => {
     if (m.role === 'user') {
       return `<div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
-        <div style="max-width:80%; background:#667eea; color:#fff; padding:8px 11px;
+        <div style="max-width:80%; background:#ff5a1f; color:#fff; padding:8px 11px;
           border-radius:12px 12px 2px 12px; font-size:12px; line-height:1.5;">${escapeHtml(m.text)}</div>
       </div>`;
     }
     const sources = (m.sources && m.sources.length)
       ? `<div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
-          ${m.sources.map((s) => `<span style="font-size:10px; background:#eef0fb; color:#667; border:1px solid #d4d8f0; padding:2px 7px; border-radius:10px;">📄 ${escapeHtml(s.title)}</span>`).join('')}
+          ${m.sources.map((s) => `<span style="font-size:10px; background:#fff1ec; color:#667; border:1px solid #ececec; padding:2px 7px; border-radius:10px;">📄 ${escapeHtml(s.title)}</span>`).join('')}
         </div>`
       : '';
     return `<div style="display:flex; justify-content:flex-start; margin-bottom:10px;">
       <div style="max-width:88%;">
-        <div style="background:#f4f3ff; color:#333; padding:9px 12px; border-radius:12px 12px 12px 2px;
+        <div style="background:#fff7f3; color:#333; padding:9px 12px; border-radius:12px 12px 12px 2px;
           font-size:12px; line-height:1.6; white-space:pre-wrap;">${escapeHtml(m.text)}</div>
         ${sources}
       </div>
@@ -1709,7 +1709,7 @@ function renderTutorMessages() {
 
   const thinking = tutorBusy
     ? `<div style="display:flex; justify-content:flex-start; margin-bottom:10px;">
-        <div style="background:#f4f3ff; color:#999; padding:9px 12px; border-radius:12px;
+        <div style="background:#fff7f3; color:#999; padding:9px 12px; border-radius:12px;
           font-size:12px;">💭 thinking…</div></div>`
     : '';
 
@@ -1749,7 +1749,7 @@ function renderPapersTab() {
 
   if (papersLoading) {
     content.innerHTML = `
-      <div style="text-align:center; padding:32px 0; color:#667eea;">
+      <div style="text-align:center; padding:32px 0; color:#ff5a1f;">
         <div style="font-size:24px; margin-bottom:10px;">🔍</div>
         <p style="font-weight:600; margin:0;">Searching Semantic Scholar…</p>
       </div>
@@ -1807,7 +1807,7 @@ function renderPaperCard(paper) {
         <div style="flex:1; min-width:0;">
           ${url
             ? `<a href="${url}" target="_blank" rel="noopener"
-                style="font-weight:600; color:#667eea; font-size:12px;
+                style="font-weight:600; color:#ff5a1f; font-size:12px;
                   text-decoration:none; word-break:break-word;">${title}</a>`
             : `<span style="font-weight:600; font-size:12px;">${title}</span>`}
           <p style="margin:2px 0 0; font-size:11px; color:#aaa;">${year}${cites}</p>
@@ -1834,7 +1834,7 @@ function setupDumbifyButton() {
   dumbifyBtn.innerHTML = '🐇 Explain';
   dumbifyBtn.style.cssText = `
     position: fixed; z-index: 2147483646;
-    background: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+    background: linear-gradient(135deg,#ff5a1f 0%,#e8480f 100%);
     color: #fff; border: none; border-radius: 20px;
     padding: 6px 16px; font-size: 12px; font-weight: 700;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -1920,15 +1920,15 @@ function renderDumbifyResult(data, originalText) {
 
   const termsHtml = (data.terms || []).map((t) => `
     <div style="padding:7px 10px; background:#f0eeff; border-radius:6px; margin-bottom:5px;">
-      <span style="font-weight:700; color:#667eea; font-size:12px;">${escapeHtml(t.term || '')}</span>
+      <span style="font-weight:700; color:#ff5a1f; font-size:12px;">${escapeHtml(t.term || '')}</span>
       <span style="color:#555; font-size:12px;"> — ${escapeHtml(t.means || '')}</span>
     </div>
   `).join('');
 
   content.innerHTML = `
     <!-- Quote -->
-    <div style="margin-bottom:14px; padding:10px 12px; background:#f8f7ff;
-      border-radius:8px; border-left:3px solid #667eea;">
+    <div style="margin-bottom:14px; padding:10px 12px; background:#fff7f3;
+      border-radius:8px; border-left:3px solid #ff5a1f;">
       <p style="margin:0; font-size:11px; color:#888; font-style:italic; line-height:1.5;">
         "${escapeHtml(snippet)}${escapeHtml(ellipsis)}"
       </p>
@@ -2025,8 +2025,8 @@ async function renderThreadTab() {
           <span style="font-size:11px; color:#444; font-weight:600; flex:1;">${escapeHtml(c)}</span>
           <span style="font-size:10px; color:#aaa;">${pct}%</span>
         </div>
-        <div style="height:3px; background:#e8e5f5; border-radius:2px;">
-          <div style="height:3px; width:${pct}%; background:linear-gradient(90deg,#667eea,#764ba2);
+        <div style="height:3px; background:#ececec; border-radius:2px;">
+          <div style="height:3px; width:${pct}%; background:linear-gradient(90deg,#ff5a1f,#e8480f);
             border-radius:2px; transition:width 0.4s;"></div>
         </div>
       </div>`;
@@ -2071,7 +2071,7 @@ async function renderThreadTab() {
     <!-- Research focus card -->
     <div id="rh-focus-card" style="margin-bottom:14px; padding:12px 14px;
       background:linear-gradient(135deg,#f0eeff,#e8f4ff); border-radius:10px;">
-      <p style="margin:0 0 2px; font-size:10px; font-weight:700; color:#667eea;
+      <p style="margin:0 0 2px; font-size:10px; font-weight:700; color:#ff5a1f;
         text-transform:uppercase; letter-spacing:0.5px;">Research focus</p>
       <p id="rh-focus-area" style="margin:0 0 4px; font-size:14px; font-weight:700; color:#333;">
         ${escapeHtml(areaLabel)}
@@ -2115,7 +2115,7 @@ function getLevelColor(level) {
     5:'#8b5cf6', 6:'#7c3aed', 7:'#f59e0b', 8:'#d97706',
     9:'#ef4444', 10:'#dc2626',
   };
-  return palette[Math.round(level)] || '#667eea';
+  return palette[Math.round(level)] || '#ff5a1f';
 }
 
 function getLevelLabel(level) {
@@ -2143,7 +2143,7 @@ function escapeHtml(text) {
       margin: 0 0 4px;
       font-size: 10px;
       font-weight: 700;
-      color: #667eea;
+      color: #ff5a1f;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }

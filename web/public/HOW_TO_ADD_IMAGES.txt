@@ -1,0 +1,2 @@
+Drop bunny.png here (the mascot). It becomes the favicon + brand mark.
+Name it exactly: bunny.png
