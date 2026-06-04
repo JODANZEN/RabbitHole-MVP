@@ -9,7 +9,7 @@ so the tutor can ground answers in the syllabus itself.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON, Integer, UniqueConstraint
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
@@ -114,6 +114,69 @@ class Reading(Base):
             "saved_at": self.saved_at.isoformat() if self.saved_at else None,
             "chunk_count": len(self.chunks),
         }
+
+
+class Quiz(Base):
+    __tablename__ = "quizzes"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    course_id = Column(String, ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    topic = Column(String, default="")
+    week = Column(Integer, nullable=True)
+    status = Column(String, default="draft")    # 'draft' | 'published'
+    created_by = Column(String, nullable=True)  # user id who generated it
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    questions = relationship(
+        "QuizQuestion", back_populates="quiz",
+        cascade="all, delete-orphan", order_by="QuizQuestion.position",
+    )
+
+    def to_dict(self, include_answers: bool = True) -> dict:
+        return {
+            "id": self.id,
+            "course_id": self.course_id,
+            "topic": self.topic,
+            "week": self.week,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "questions": [q.to_dict(include_answers) for q in self.questions],
+        }
+
+
+class QuizQuestion(Base):
+    __tablename__ = "quiz_questions"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    quiz_id = Column(String, ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    prompt = Column(Text, nullable=False)
+    options = Column(JSON, default=list)        # list[str]
+    correct_index = Column(Integer, default=0)
+    explanation = Column(Text, default="")
+    position = Column(Integer, default=0)       # ordering
+
+    quiz = relationship("Quiz", back_populates="questions")
+
+    def to_dict(self, include_answer: bool = True) -> dict:
+        d = {"id": self.id, "prompt": self.prompt, "options": self.options or []}
+        if include_answer:
+            d["correct_index"] = self.correct_index
+            d["explanation"] = self.explanation
+        return d
+
+
+class QuizAttempt(Base):
+    __tablename__ = "quiz_attempts"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    quiz_id = Column(String, ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    course_id = Column(String, index=True)
+    student_id = Column(String, index=True)
+    topic = Column(String, default="")
+    score = Column(Integer, default=0)          # number correct
+    total = Column(Integer, default=0)
+    answers = Column(JSON, default=list)        # list[int]
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Chunk(Base):

@@ -18,7 +18,7 @@ import string
 from datetime import datetime
 
 from .database import get_session
-from .models import Course, Reading, Chunk, Profile, QuestionLog, Enrollment
+from .models import Course, Reading, Chunk, Profile, QuestionLog, Enrollment, Quiz, QuizQuestion
 from .embeddings import embed_texts, embed_text
 from .llm_service import generate_answer, process_syllabus
 
@@ -356,6 +356,110 @@ async def log_question(course_id: str, question: str, user_id: Optional[str] = N
         await run_in_threadpool(_log_question, course_id, question, user_id)
     except Exception as e:
         print(f"[RabbitHole] question log failed (ignored): {e}")
+
+
+# ── Quizzes (topic-grounded generation) ──────────────────────────────
+
+def _save_quiz(course_id, topic, week, created_by, questions) -> str:
+    session = get_session()
+    try:
+        quiz = Quiz(course_id=course_id, topic=topic, week=week,
+                    status="draft", created_by=created_by)
+        session.add(quiz)
+        session.flush()
+        for i, q in enumerate(questions):
+            session.add(QuizQuestion(
+                quiz_id=quiz.id, prompt=q.get("prompt", ""),
+                options=q.get("options", []), correct_index=q.get("correct_index", 0),
+                explanation=q.get("explanation", ""), position=i,
+            ))
+        session.commit()
+        return quiz.id
+    finally:
+        session.close()
+
+
+def _get_quiz(quiz_id: str, include_answers: bool = True) -> Optional[Dict[str, Any]]:
+    session = get_session()
+    try:
+        quiz = session.get(Quiz, quiz_id)
+        return quiz.to_dict(include_answers) if quiz else None
+    finally:
+        session.close()
+
+
+def _list_quizzes(course_id: str, include_drafts: bool) -> List[Dict[str, Any]]:
+    session = get_session()
+    try:
+        stmt = select(Quiz).where(Quiz.course_id == course_id)
+        if not include_drafts:
+            stmt = stmt.where(Quiz.status == "published")
+        stmt = stmt.order_by(Quiz.created_at.desc())
+        quizzes = session.execute(stmt).scalars().all()
+        return [
+            {"id": q.id, "topic": q.topic, "week": q.week, "status": q.status,
+             "question_count": len(q.questions),
+             "created_at": q.created_at.isoformat() if q.created_at else None}
+            for q in quizzes
+        ]
+    finally:
+        session.close()
+
+
+async def generate_quiz(course_id: str, topic: str, week=None,
+                        n: int = 5, created_by: Optional[str] = None) -> Dict[str, Any]:
+    """Generate a draft quiz of n MCQs grounded in the course's material for `topic`."""
+    import json
+    course = await run_in_threadpool(_get_course, course_id)
+    if not course:
+        raise ValueError("Course not found")
+
+    qvec = await embed_text(topic)
+    hits = await run_in_threadpool(_retrieve, course_id, qvec, 8)
+    material = "\n\n".join(f"[{h['title']}] {h['content']}" for h in hits) or "(limited material)"
+
+    prompt = f"""You are writing a quiz for the course "{course['name']}", on the topic "{topic}".
+Base the questions ONLY on the COURSE MATERIAL below. Do not invent facts not supported by it.
+
+COURSE MATERIAL:
+{material[:12000]}
+
+Write {n} multiple-choice questions that test understanding of "{topic}".
+Return ONLY valid JSON (no markdown):
+{{"questions":[
+  {{"prompt":"<question>","options":["<a>","<b>","<c>","<d>"],"correct_index":<0-3>,"explanation":"<one sentence why>"}}
+]}}
+Rules: exactly 4 options each; exactly one correct; vary the correct position; keep prompts concise."""
+
+    raw = await generate_answer(prompt, temperature=0.4)
+    raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        questions = json.loads(raw).get("questions", [])
+    except Exception as e:
+        raise RuntimeError(f"Quiz generation returned invalid JSON: {e}")
+
+    # sanitize
+    clean = []
+    for q in questions:
+        opts = q.get("options", [])
+        if isinstance(opts, list) and len(opts) == 4 and q.get("prompt"):
+            ci = q.get("correct_index", 0)
+            ci = ci if isinstance(ci, int) and 0 <= ci <= 3 else 0
+            clean.append({"prompt": q["prompt"], "options": opts,
+                          "correct_index": ci, "explanation": q.get("explanation", "")})
+    if not clean:
+        raise RuntimeError("No valid questions were generated. Try again or add more material.")
+
+    quiz_id = await run_in_threadpool(_save_quiz, course_id, topic, week, created_by, clean)
+    return await run_in_threadpool(_get_quiz, quiz_id, True)
+
+
+async def list_quizzes(course_id: str, include_drafts: bool) -> List[Dict[str, Any]]:
+    return await run_in_threadpool(_list_quizzes, course_id, include_drafts)
+
+
+async def get_quiz(quiz_id: str, include_answers: bool = True) -> Optional[Dict[str, Any]]:
+    return await run_in_threadpool(_get_quiz, quiz_id, include_answers)
 
 
 # ── Enrollment (request → accept) ────────────────────────────────────

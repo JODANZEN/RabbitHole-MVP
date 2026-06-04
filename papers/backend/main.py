@@ -156,6 +156,12 @@ class DecisionInput(BaseModel):
     status: str                            # 'active' | 'rejected'
 
 
+class QuizGenInput(BaseModel):
+    topic: str
+    week: Optional[int] = None
+    num_questions: Optional[int] = 5
+
+
 # ─── Analysis endpoint ───────────────────────────────────────────────
 
 @app.post("/analyze", response_model=AnalysisResponse)
@@ -512,6 +518,55 @@ async def set_me(body: RoleInput, user: dict = Depends(get_current_user)):
     if body.role and body.role not in ("student", "teacher"):
         raise HTTPException(status_code=422, detail="role must be 'student' or 'teacher'")
     return await rag.update_profile(user["id"], role=body.role, name=body.name)
+
+
+# ─── Quizzes ────────────────────────────────────────────────────────
+
+def _can_edit_course(course: dict, user: dict) -> bool:
+    """Owner can edit; owner-less (free-range) courses are editable by any signed-in user."""
+    return (not course.get("owner_id")) or course.get("owner_id") == user.get("id")
+
+
+@app.post("/courses/{course_id}/quizzes/generate")
+async def generate_quiz(course_id: str, body: QuizGenInput, user: dict = Depends(get_current_user)):
+    """Generate a draft quiz grounded in the course material for a topic."""
+    _require_db()
+    course = await rag.get_course(course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if not _can_edit_course(course, user):
+        raise HTTPException(status_code=403, detail="Not your course")
+    if not body.topic.strip():
+        raise HTTPException(status_code=422, detail="Provide a topic")
+    n = max(3, min(body.num_questions or 5, 10))
+    print(f"[RabbitHole] /quizzes/generate — course={course_id}, topic='{body.topic}', n={n}")
+    try:
+        return await rag.generate_quiz(course_id, body.topic.strip(), body.week, n, user.get("id"))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/courses/{course_id}/quizzes")
+async def list_quizzes(course_id: str, user: Optional[dict] = Depends(get_optional_user)):
+    """List quizzes. Owner sees drafts too; everyone else sees published only."""
+    _require_db()
+    course = await rag.get_course(course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    include_drafts = bool(user and _can_edit_course(course, user))
+    return {"quizzes": await rag.list_quizzes(course_id, include_drafts)}
+
+
+@app.get("/quizzes/{quiz_id}")
+async def get_quiz(quiz_id: str, user: dict = Depends(get_current_user)):
+    """Get a full quiz (with answers — for the teacher review view)."""
+    _require_db()
+    quiz = await rag.get_quiz(quiz_id, include_answers=True)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    return quiz
 
 
 # ─── Enrollment ─────────────────────────────────────────────────────
