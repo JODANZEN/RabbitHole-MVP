@@ -162,6 +162,11 @@ class QuizGenInput(BaseModel):
     num_questions: Optional[int] = 5
 
 
+class QuizUpdateInput(BaseModel):
+    questions: Optional[List[dict]] = None     # [{prompt, options[4], correct_index, explanation}]
+    status: Optional[str] = None               # 'draft' | 'published'
+
+
 # ─── Analysis endpoint ───────────────────────────────────────────────
 
 @app.post("/analyze", response_model=AnalysisResponse)
@@ -567,6 +572,30 @@ async def get_quiz(quiz_id: str, user: dict = Depends(get_current_user)):
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return quiz
+
+
+@app.put("/quizzes/{quiz_id}")
+async def update_quiz(quiz_id: str, body: QuizUpdateInput, user: dict = Depends(get_current_user)):
+    """Replace a quiz's questions and/or set its status (teacher review → publish)."""
+    _require_db()
+    try:
+        return await rag.update_quiz(quiz_id, body.questions, body.status, user.get("id"))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Not your course")
+
+
+@app.delete("/quizzes/{quiz_id}")
+async def delete_quiz(quiz_id: str, user: dict = Depends(get_current_user)):
+    _require_db()
+    try:
+        ok = await rag.delete_quiz(quiz_id, user.get("id"))
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Not your course")
+    if not ok:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    return {"status": "deleted"}
 
 
 # ─── Enrollment ─────────────────────────────────────────────────────

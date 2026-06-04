@@ -54,6 +54,9 @@ export interface Enrollment {
   status: string;
   course: { id: string; name: string; reading_count: number };
 }
+export interface QuizQuestion { id?: string; prompt: string; options: string[]; correct_index: number; explanation: string; }
+export interface Quiz { id: string; course_id: string; topic: string; week?: number | null; status: string; questions: QuizQuestion[]; }
+export interface QuizSummary { id: string; topic: string; week?: number | null; status: string; question_count: number; created_at: string; }
 
 export const api = {
   me:          ()                         => request<Profile>('/me'),
@@ -67,4 +70,13 @@ export const api = {
   myEnrollments: ()                       => request<{ enrollments: Enrollment[] }>('/me/enrollments'),
   roster:      (courseId: string)         => request<Roster>(`/courses/${courseId}/roster`),
   decide:      (enrollmentId: string, status: 'active' | 'rejected') => request<{ status: string }>(`/enrollments/${enrollmentId}/decision`, { method: 'POST', body: JSON.stringify({ status }) }),
+  // course detail + material
+  getCourse:   (courseId: string)         => request<Course>(`/courses/${courseId}`),
+  addReading:  (courseId: string, title: string, text: string) => request<{ chunks: number }>(`/courses/${courseId}/readings`, { method: 'POST', body: JSON.stringify({ title, text }) }),
+  // quizzes
+  genQuiz:     (courseId: string, topic: string, week?: number | null, n?: number) => request<Quiz>(`/courses/${courseId}/quizzes/generate`, { method: 'POST', body: JSON.stringify({ topic, week, num_questions: n }) }),
+  listQuizzes: (courseId: string)         => request<{ quizzes: QuizSummary[] }>(`/courses/${courseId}/quizzes`),
+  getQuiz:     (quizId: string)           => request<Quiz>(`/quizzes/${quizId}`),
+  updateQuiz:  (quizId: string, questions: QuizQuestion[] | null, status?: string) => request<Quiz>(`/quizzes/${quizId}`, { method: 'PUT', body: JSON.stringify({ questions, status }) }),
+  deleteQuiz:  (quizId: string)           => request<{ status: string }>(`/quizzes/${quizId}`, { method: 'DELETE' }),
 };

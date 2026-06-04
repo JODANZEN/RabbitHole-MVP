@@ -454,6 +454,60 @@ Rules: exactly 4 options each; exactly one correct; vary the correct position; k
     return await run_in_threadpool(_get_quiz, quiz_id, True)
 
 
+def _update_quiz(quiz_id, questions, status, user_id) -> Dict[str, Any]:
+    session = get_session()
+    try:
+        quiz = session.get(Quiz, quiz_id)
+        if not quiz:
+            raise ValueError("Quiz not found")
+        course = session.get(Course, quiz.course_id)
+        if course and course.owner_id and course.owner_id != user_id:
+            raise PermissionError("Not your course")
+        if questions is not None:
+            for q in list(quiz.questions):
+                session.delete(q)
+            session.flush()
+            for i, q in enumerate(questions):
+                opts = q.get("options", [])
+                if not q.get("prompt") or len(opts) != 4:
+                    continue
+                ci = q.get("correct_index", 0)
+                ci = ci if isinstance(ci, int) and 0 <= ci <= 3 else 0
+                session.add(QuizQuestion(
+                    quiz_id=quiz.id, prompt=q["prompt"], options=opts,
+                    correct_index=ci, explanation=q.get("explanation", ""), position=i))
+        if status in ("draft", "published"):
+            quiz.status = status
+        session.commit()
+        return quiz.to_dict(True)
+    finally:
+        session.close()
+
+
+def _delete_quiz(quiz_id, user_id) -> bool:
+    session = get_session()
+    try:
+        quiz = session.get(Quiz, quiz_id)
+        if not quiz:
+            return False
+        course = session.get(Course, quiz.course_id)
+        if course and course.owner_id and course.owner_id != user_id:
+            raise PermissionError("Not your course")
+        session.delete(quiz)
+        session.commit()
+        return True
+    finally:
+        session.close()
+
+
+async def update_quiz(quiz_id, questions, status, user_id) -> Dict[str, Any]:
+    return await run_in_threadpool(_update_quiz, quiz_id, questions, status, user_id)
+
+
+async def delete_quiz(quiz_id, user_id) -> bool:
+    return await run_in_threadpool(_delete_quiz, quiz_id, user_id)
+
+
 async def list_quizzes(course_id: str, include_drafts: bool) -> List[Dict[str, Any]]:
     return await run_in_threadpool(_list_quizzes, course_id, include_drafts)
 

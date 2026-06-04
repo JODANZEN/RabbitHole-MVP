@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Onboarding from './pages/Onboarding';
 import TeacherDashboard from './pages/TeacherDashboard';
 import CourseInsights from './pages/CourseInsights';
+import QuizManager from './pages/QuizManager';
 import StudentDashboard from './pages/StudentDashboard';
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
         <>
           <Route path="/" element={<TeacherDashboard />} />
           <Route path="/course/:id" element={<CourseInsights />} />
+          <Route path="/course/:id/quizzes" element={<QuizManager />} />
         </>
       ) : (
         <Route path="/" element={<StudentDashboard />} />

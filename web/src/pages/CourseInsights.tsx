@@ -33,7 +33,10 @@ export default function CourseInsights() {
     <div className="page">
       <Header subtitle="Teacher" />
       <main className="container">
-        <Link to="/" className="muted small">← All courses</Link>
+        <div className="row-between">
+          <Link to="/" className="muted small">← All courses</Link>
+          <Link to={`/course/${id}/quizzes`} className="btn primary small" style={{ marginTop: 0, width: 'auto', textDecoration: 'none' }}>Manage quizzes →</Link>
+        </div>
 
         {loading && <p className="muted">Analyzing student questions…</p>}
         {err && <p className="msg">{err}</p>}
