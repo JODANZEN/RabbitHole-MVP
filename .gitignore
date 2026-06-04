@@ -307,6 +307,10 @@ extension/dist/
 extension/.vite/
 npm-debug.log*
 
+# RabbitHole web app
+web/dist/
+web/.vite/
+
 # Python virtualenv
 .venv/
 venv/
