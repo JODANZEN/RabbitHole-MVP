@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import Brand from '../components/Brand';
 
 export default function Login() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -31,8 +32,8 @@ export default function Login() {
   return (
     <div className="center">
       <div className="card auth-card">
-        <div className="brand">🐇 <span>RabbitHole</span></div>
-        <p className="muted" style={{ marginTop: 0 }}>Your AI learning companion.</p>
+        <Brand size="lg" />
+        <p className="hero-tagline">An AI learning companion that lives inside your course.</p>
 
         <form onSubmit={submit}>
           <label>Email</label>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
+import Brand from '../components/Brand';
 
 export default function Onboarding() {
   const { refreshProfile, signOut } = useAuth();
@@ -22,8 +23,8 @@ export default function Onboarding() {
   return (
     <div className="center">
       <div className="card auth-card">
-        <div className="brand">🐇 <span>Welcome</span></div>
-        <p className="muted" style={{ marginTop: 0 }}>How will you use RabbitHole?</p>
+        <Brand size="md" />
+        <p className="hero-tagline">How will you use RabbitHole?</p>
 
         <label>Your name (optional)</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. José" />
