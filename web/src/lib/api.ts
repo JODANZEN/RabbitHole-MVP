@@ -9,18 +9,21 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Resolve the auth token first so its failures aren't mislabeled as "backend unreachable".
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(await authHeaders()),
+    ...(options.headers || {}),
+  };
   let res: Response;
   try {
-    res = await fetch(BACKEND + path, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(await authHeaders()),
-        ...(options.headers || {}),
-      },
-    });
-  } catch {
-    throw new Error(`Can't reach the backend at ${BACKEND}. Is it running?`);
+    res = await fetch(BACKEND + path, { ...options, headers });
+  } catch (e: any) {
+    const why = e?.message || String(e);
+    throw new Error(
+      `Request to ${BACKEND}${path} was blocked (${why}). The server is reachable, ` +
+      `so this is usually the browser blocking localhost — try Chrome, or disable Opera's VPN/ad-blocker for this site.`
+    );
   }
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
