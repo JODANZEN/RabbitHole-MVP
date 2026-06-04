@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { api, Course, Quiz, QuizSummary, AttemptResult } from '../lib/api';
+import { api, Course, Quiz, QuizSummary, AttemptResult, Progress } from '../lib/api';
 import Header from '../components/Header';
+import { ComprehensionChart, TopicMasteryBars } from '../components/Charts';
 
 export default function StudentClass() {
   const { id } = useParams();
@@ -10,14 +11,19 @@ export default function StudentClass() {
   const [taking, setTaking] = useState<Quiz | null>(null);
   const [answers, setAnswers] = useState<number[]>([]);
   const [result, setResult] = useState<AttemptResult | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
+  function loadProgress() {
+    if (id) api.myProgress(id).then(setProgress).catch(() => {});
+  }
   useEffect(() => {
     if (!id) return;
     Promise.all([api.getCourse(id), api.listQuizzes(id)])
       .then(([c, q]) => { setCourse(c); setQuizzes(q.quizzes); })
       .catch((e) => setErr(e.message));
+    loadProgress();
   }, [id]);
 
   async function startQuiz(quizId: string) {
@@ -37,6 +43,7 @@ export default function StudentClass() {
       const res = await api.submitAttempt(taking.id, answers);
       setResult(res);
       setTaking(null);
+      loadProgress();   // refresh my stats after the attempt
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
   }
@@ -125,6 +132,30 @@ export default function StudentClass() {
         <div className="card tip">
           <strong>💡</strong> Ask the tutor about this course any time in the RabbitHole extension — by voice or text.
         </div>
+
+        {progress && progress.attempt_count > 0 && (
+          <>
+            <h2>My progress</h2>
+            <div className="stat-grid">
+              <div className="stat-card">
+                <span className="label">My comprehension</span>
+                <div className="stat-num">{progress.comprehension}<small>%</small></div>
+                <div className="stat-sub">across {progress.attempt_count} quiz attempt{progress.attempt_count === 1 ? '' : 's'}</div>
+              </div>
+              {progress.weakest_topic && (
+                <div className="stat-card">
+                  <span className="label">Focus next on</span>
+                  <div className="stat-strong">{progress.weakest_topic.topic}</div>
+                  <div className="stat-sub">your weakest topic ({progress.weakest_topic.pct}%)</div>
+                </div>
+              )}
+            </div>
+            <div className="card"><ComprehensionChart data={progress.over_time} /></div>
+            {progress.topic_mastery.length > 0 && (
+              <div className="card"><TopicMasteryBars data={progress.topic_mastery} /></div>
+            )}
+          </>
+        )}
 
         <h2>Quizzes</h2>
         {err && <p className="msg">{err}</p>}

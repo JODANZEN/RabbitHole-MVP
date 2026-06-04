@@ -32,11 +32,29 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export interface Profile { id: string; email: string; name: string; role: string; }
 export interface Course { id: string; name: string; reading_count: number; join_code?: string; processed?: any; }
+export interface TopicMastery { topic: string; pct: number; }
+export interface OverTimePoint { period: string; pct: number; }
 export interface Insights {
   course: { id: string; name: string };
   question_count: number;
   recent: { question: string; created_at: string }[];
   themes: { topic: string; why: string; count: number }[];
+  comprehension: number;
+  student_count: number;
+  attempted_count: number;
+  at_risk: number;
+  attempt_count: number;
+  per_student: { name: string; pct: number; at_risk: boolean }[];
+  topic_mastery: TopicMastery[];
+  over_time: OverTimePoint[];
+}
+export interface Progress {
+  course: { id: string; name: string };
+  comprehension: number;
+  attempt_count: number;
+  topic_mastery: TopicMastery[];
+  over_time: OverTimePoint[];
+  weakest_topic: TopicMastery | null;
 }
 export interface Member {
   enrollment_id: string;
@@ -85,4 +103,5 @@ export const api = {
   deleteQuiz:  (quizId: string)           => request<{ status: string }>(`/quizzes/${quizId}`, { method: 'DELETE' }),
   takeQuiz:    (quizId: string)           => request<Quiz>(`/quizzes/${quizId}/take`),
   submitAttempt: (quizId: string, answers: number[]) => request<AttemptResult>(`/quizzes/${quizId}/attempt`, { method: 'POST', body: JSON.stringify({ answers }) }),
+  myProgress:  (courseId: string)         => request<Progress>(`/me/progress?course_id=${courseId}`),
 };

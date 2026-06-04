@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api, Insights, Roster } from '../lib/api';
 import Header from '../components/Header';
+import { ComprehensionChart, TopicMasteryBars } from '../components/Charts';
 
 export default function CourseInsights() {
   const { id } = useParams();
@@ -48,23 +49,51 @@ export default function CourseInsights() {
 
             <div className="stat-grid">
               <div className="stat-card">
-                <span className="label">Tutor questions</span>
-                <div className="stat-num">{data.question_count}</div>
-                <div className="stat-sub">logged from the AI tutor</div>
+                <span className="label">Class comprehension</span>
+                <div className="stat-num">{data.attempt_count ? `${data.comprehension}%` : '—'}</div>
+                <div className="stat-sub">{data.attempt_count} quiz attempt{data.attempt_count === 1 ? '' : 's'}</div>
               </div>
               <div className="stat-card">
                 <span className="label">Most confused topic</span>
-                <div className="stat-strong">{data.themes[0]?.topic || '—'}</div>
+                <div className="stat-strong">{data.themes[0]?.topic || data.topic_mastery[0]?.topic || '—'}</div>
                 <div className="stat-sub">
-                  {data.themes[0] ? `asked ~${data.themes[0].count}× this period` : 'gathering data…'}
+                  {data.themes[0] ? `asked ~${data.themes[0].count}× by the tutor`
+                    : data.topic_mastery[0] ? `lowest quiz mastery (${data.topic_mastery[0].pct}%)` : 'gathering data…'}
                 </div>
               </div>
               <div className="stat-card">
-                <span className="label">Confusion areas</span>
-                <div className="stat-num">{data.themes.length}</div>
-                <div className="stat-sub">distinct struggle themes</div>
+                <span className="label">Students at risk</span>
+                <div className="stat-num">{data.at_risk}<small> of {data.student_count || data.attempted_count}</small></div>
+                <div className="stat-sub">below {60}% mastery</div>
               </div>
             </div>
+
+            <h2>Comprehension over time</h2>
+            <div className="card"><ComprehensionChart data={data.over_time} /></div>
+
+            {data.topic_mastery.length > 0 && (
+              <>
+                <h2>Topic mastery (weakest first)</h2>
+                <div className="card"><TopicMasteryBars data={data.topic_mastery} /></div>
+              </>
+            )}
+
+            {data.per_student.length > 0 && (
+              <>
+                <h2>Students</h2>
+                <div className="grid">
+                  {data.per_student.map((s, i) => (
+                    <div key={i} className="card" style={{ padding: '12px 16px', borderColor: s.at_risk ? 'rgba(255,90,31,.4)' : undefined }}>
+                      <div className="row-between">
+                        <strong style={{ fontFamily: 'Outfit' }}>{s.name}</strong>
+                        <span className="pill" style={s.at_risk ? { background: 'rgba(255,90,31,.12)' } : {}}>{s.pct}%</span>
+                      </div>
+                      {s.at_risk && <div className="stat-sub" style={{ color: 'var(--orange)' }}>at risk</div>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
 
             <h2>Where the class is struggling</h2>
             {data.themes.length === 0 ? (

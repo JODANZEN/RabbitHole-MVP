@@ -661,6 +661,119 @@ async def decide_enrollment(enrollment_id: str, status: str, teacher_id: str) ->
     return await run_in_threadpool(_decide_enrollment, enrollment_id, status, teacher_id)
 
 
+MASTERY_THRESHOLD = 60   # below this % a student is "at risk" / a topic is weak
+
+
+def _pct(sc: int, tot: int) -> int:
+    return round(100 * sc / tot) if tot else 0
+
+
+def _course_quiz_stats(course_id: str) -> Dict[str, Any]:
+    from collections import defaultdict
+    session = get_session()
+    try:
+        attempts = session.execute(
+            select(QuizAttempt).where(QuizAttempt.course_id == course_id)
+            .order_by(QuizAttempt.created_at)
+        ).scalars().all()
+        active = session.execute(
+            select(Enrollment).where(Enrollment.course_id == course_id,
+                                     Enrollment.status == "active")
+        ).scalars().all()
+        active_ids = {e.student_id for e in active}
+
+        sids = {a.student_id for a in attempts}
+        profs = {}
+        if sids:
+            profs = {p.id: p for p in session.execute(
+                select(Profile).where(Profile.id.in_(sids))).scalars().all()}
+
+        per_student = defaultdict(lambda: [0, 0])
+        per_topic = defaultdict(lambda: [0, 0])
+        per_day = defaultdict(lambda: [0, 0])
+        for a in attempts:
+            per_student[a.student_id][0] += a.score; per_student[a.student_id][1] += a.total
+            per_topic[a.topic][0] += a.score; per_topic[a.topic][1] += a.total
+            day = a.created_at.strftime("%b %d") if a.created_at else "—"
+            per_day[day][0] += a.score; per_day[day][1] += a.total
+
+        total_sc = sum(v[0] for v in per_student.values())
+        total_tot = sum(v[1] for v in per_student.values())
+
+        students = []
+        for sid, (sc, tot) in per_student.items():
+            p = profs.get(sid)
+            pc = _pct(sc, tot)
+            students.append({
+                "name": (p.name or p.email) if p else "Student",
+                "pct": pc, "at_risk": pc < MASTERY_THRESHOLD,
+            })
+        students.sort(key=lambda s: s["pct"])
+
+        topic_mastery = sorted(
+            [{"topic": t, "pct": _pct(sc, tot)} for t, (sc, tot) in per_topic.items()],
+            key=lambda x: x["pct"],
+        )
+        over_time = [{"period": d, "pct": _pct(sc, tot)}
+                     for d, (sc, tot) in per_day.items()]
+
+        return {
+            "comprehension": _pct(total_sc, total_tot),
+            "student_count": len(active_ids),
+            "attempted_count": len(per_student),
+            "at_risk": sum(1 for s in students if s["at_risk"]),
+            "attempt_count": len(attempts),
+            "per_student": students,
+            "topic_mastery": topic_mastery,
+            "over_time": over_time,
+        }
+    finally:
+        session.close()
+
+
+def _student_progress(course_id: str, student_id: str) -> Dict[str, Any]:
+    from collections import defaultdict
+    session = get_session()
+    try:
+        course = session.get(Course, course_id)
+        attempts = session.execute(
+            select(QuizAttempt).where(QuizAttempt.course_id == course_id,
+                                      QuizAttempt.student_id == student_id)
+            .order_by(QuizAttempt.created_at)
+        ).scalars().all()
+
+        per_topic = defaultdict(lambda: [0, 0])
+        per_day = defaultdict(lambda: [0, 0])
+        tsc = ttot = 0
+        for a in attempts:
+            per_topic[a.topic][0] += a.score; per_topic[a.topic][1] += a.total
+            day = a.created_at.strftime("%b %d") if a.created_at else "—"
+            per_day[day][0] += a.score; per_day[day][1] += a.total
+            tsc += a.score; ttot += a.total
+
+        topic_mastery = sorted(
+            [{"topic": t, "pct": _pct(sc, tot)} for t, (sc, tot) in per_topic.items()],
+            key=lambda x: x["pct"],
+        )
+        over_time = [{"period": d, "pct": _pct(sc, tot)} for d, (sc, tot) in per_day.items()]
+        weakest = topic_mastery[0] if topic_mastery else None
+
+        return {
+            "course": {"id": course_id, "name": course.name if course else ""},
+            "comprehension": _pct(tsc, ttot),
+            "attempt_count": len(attempts),
+            "topic_mastery": topic_mastery,
+            "over_time": over_time,
+            "weakest_topic": weakest,
+        }
+    finally:
+        session.close()
+
+
+async def student_progress(course_id: str, student_id: str) -> Dict[str, Any]:
+    return await run_in_threadpool(_student_progress, course_id, student_id)
+
+
 async def course_insights(course_id: str) -> Dict[str, Any]:
     """Aggregate recent student questions into 'where the class is struggling' themes."""
     course = await run_in_threadpool(_get_course, course_id)
@@ -687,9 +800,11 @@ Return ONLY valid JSON — no markdown:
         except Exception as e:
             print(f"[RabbitHole] insights theme extraction failed: {e}")
 
+    stats = await run_in_threadpool(_course_quiz_stats, course_id)
     return {
         "course": {"id": course["id"], "name": course["name"]},
         "question_count": len(questions),
         "recent": questions[:25],
         "themes": themes,
+        **stats,
     }

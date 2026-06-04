@@ -670,6 +670,13 @@ async def decide_enrollment(enrollment_id: str, body: DecisionInput,
         raise HTTPException(status_code=403, detail="Not your course")
 
 
+@app.get("/me/progress")
+async def my_progress(course_id: str, user: dict = Depends(get_current_user)):
+    """A student's own stats for a course: comprehension, per-topic mastery, over time."""
+    _require_db()
+    return await rag.student_progress(course_id, user["id"])
+
+
 @app.get("/courses/{course_id}/insights")
 async def course_insights(course_id: str, user: dict = Depends(get_current_user)):
     """Teacher view: aggregate recent student questions into struggle themes."""
