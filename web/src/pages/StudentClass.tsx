@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { api, Course, Quiz, QuizSummary, AttemptResult, Progress } from '../lib/api';
+import { api, Course, Quiz, QuizSummary, AttemptResult, Progress, Recommendations } from '../lib/api';
 import Header from '../components/Header';
 import { ComprehensionChart, TopicMasteryBars } from '../components/Charts';
 
@@ -12,11 +12,18 @@ export default function StudentClass() {
   const [answers, setAnswers] = useState<number[]>([]);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [recs, setRecs] = useState<Recommendations | null>(null);
+  const [recsLoading, setRecsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
   function loadProgress() {
     if (id) api.myProgress(id).then(setProgress).catch(() => {});
+  }
+  function loadRecs(topic?: string) {
+    if (!id) return;
+    setRecsLoading(true);
+    api.recommendations(id, topic).then(setRecs).catch(() => {}).finally(() => setRecsLoading(false));
   }
   useEffect(() => {
     if (!id) return;
@@ -24,7 +31,10 @@ export default function StudentClass() {
       .then(([c, q]) => { setCourse(c); setQuizzes(q.quizzes); })
       .catch((e) => setErr(e.message));
     loadProgress();
+    loadRecs();
   }, [id]);
+
+  const weeks = (course?.processed?.weeks || []) as any[];
 
   async function startQuiz(quizId: string) {
     setErr(''); setResult(null);
@@ -171,6 +181,40 @@ export default function StudentClass() {
               <button className="btn primary small" style={{ marginTop: 0, width: 'auto' }} onClick={() => startQuiz(q.id)}>Take quiz</button>
             </div>
           ))
+        )}
+
+        <h2>Recommended readings</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>Sources from Semantic Scholar, matched to your syllabus. Pick a topic to refine.</p>
+        {weeks.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '8px 0 14px' }}>
+            <button className="btn ghost small" onClick={() => loadRecs()}>Whole course</button>
+            {weeks.map((w: any) => (
+              <button key={w.week} className="btn ghost small" onClick={() => loadRecs(w.topic)}>
+                Wk {w.week}: {String(w.topic).slice(0, 24)}
+              </button>
+            ))}
+          </div>
+        )}
+        {recsLoading && <p className="muted">Finding readings…</p>}
+        {recs && !recsLoading && (
+          <>
+            <p className="label">{recs.topic}</p>
+            {recs.papers.length === 0 ? (
+              <p className="muted small">No readings found — try a different topic.</p>
+            ) : (
+              <div className="grid">
+                {recs.papers.map((p, i) => (
+                  <a key={i} href={p.url || '#'} target="_blank" rel="noreferrer" className="card course-card">
+                    <div style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{p.title}</div>
+                    <div className="muted small" style={{ marginBottom: 6 }}>
+                      {p.year || '—'} · {p.citations || 0} citations
+                    </div>
+                    {p.abstract && <div className="muted small" style={{ lineHeight: 1.5 }}>{p.abstract}</div>}
+                  </a>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

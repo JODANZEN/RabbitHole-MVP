@@ -56,6 +56,8 @@ export interface Progress {
   over_time: OverTimePoint[];
   weakest_topic: TopicMastery | null;
 }
+export interface Paper { title: string; year?: number; complexity?: number; abstract?: string; url?: string; citations?: number; }
+export interface Recommendations { topic: string; concepts: string[]; papers: Paper[]; }
 export interface Member {
   enrollment_id: string;
   status: string;
@@ -104,4 +106,5 @@ export const api = {
   takeQuiz:    (quizId: string)           => request<Quiz>(`/quizzes/${quizId}/take`),
   submitAttempt: (quizId: string, answers: number[]) => request<AttemptResult>(`/quizzes/${quizId}/attempt`, { method: 'POST', body: JSON.stringify({ answers }) }),
   myProgress:  (courseId: string)         => request<Progress>(`/me/progress?course_id=${courseId}`),
+  recommendations: (courseId: string, topic?: string) => request<Recommendations>(`/courses/${courseId}/recommendations${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
 };

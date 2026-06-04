@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, Enrollment } from '../lib/api';
+import { api, Enrollment, Course } from '../lib/api';
 import Header from '../components/Header';
 
 export default function StudentDashboard() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [ownCourses, setOwnCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
@@ -12,6 +13,8 @@ export default function StudentDashboard() {
 
   async function load() {
     try { setEnrollments((await api.myEnrollments()).enrollments); }
+    catch { /* ignore */ }
+    try { setOwnCourses((await api.myCourses()).courses); }
     catch { /* ignore */ }
     finally { setLoading(false); }
   }
@@ -92,6 +95,20 @@ export default function StudentDashboard() {
 
             {active.length === 0 && pending.length === 0 && (
               <p className="muted">You haven't joined any classes yet. Enter a join code above, or create your own study course in the extension.</p>
+            )}
+
+            {ownCourses.length > 0 && (
+              <>
+                <h2>My study courses <span className="muted small" style={{ fontWeight: 400 }}>(no teacher — just you)</span></h2>
+                <div className="grid">
+                  {ownCourses.map((c) => (
+                    <Link key={c.id} to={`/class/${c.id}`} className="card course-card">
+                      <div className="course-name">📘 {c.name}</div>
+                      <div className="muted small">{c.reading_count} readings · quizzes, progress & readings →</div>
+                    </Link>
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}

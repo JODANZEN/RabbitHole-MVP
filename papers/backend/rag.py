@@ -20,7 +20,7 @@ from datetime import datetime
 from .database import get_session
 from .models import Course, Reading, Chunk, Profile, QuestionLog, Enrollment, Quiz, QuizQuestion
 from .embeddings import embed_texts, embed_text
-from .llm_service import generate_answer, process_syllabus
+from .llm_service import generate_answer, process_syllabus, find_related_papers
 
 
 def _gen_join_code(session) -> str:
@@ -772,6 +772,32 @@ def _student_progress(course_id: str, student_id: str) -> Dict[str, Any]:
 
 async def student_progress(course_id: str, student_id: str) -> Dict[str, Any]:
     return await run_in_threadpool(_student_progress, course_id, student_id)
+
+
+async def recommend_sources(course_id: str, topic: Optional[str] = None) -> Dict[str, Any]:
+    """Recommend readings (Semantic Scholar) for a syllabus topic, or the whole course."""
+    course = await run_in_threadpool(_get_course, course_id)
+    if not course:
+        raise ValueError("Course not found")
+    processed = course.get("processed") or {}
+    weeks = processed.get("weeks") or []
+    key_concepts = processed.get("key_concepts") or []
+
+    if topic:
+        tl = topic.lower()
+        match = next(
+            (w for w in weeks
+             if tl in (w.get("topic", "") or "").lower()
+             or (w.get("topic", "") or "").lower() in tl),
+            None,
+        )
+        concepts = (match.get("concepts") if match and match.get("concepts")
+                    else [topic] + key_concepts[:2])
+    else:
+        concepts = key_concepts[:4] or [course["name"]]
+
+    papers = await find_related_papers([c for c in concepts if c], 5)
+    return {"topic": topic or "Whole course", "concepts": concepts[:5], "papers": papers}
 
 
 async def course_insights(course_id: str) -> Dict[str, Any]:

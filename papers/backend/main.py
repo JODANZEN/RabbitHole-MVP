@@ -670,6 +670,17 @@ async def decide_enrollment(enrollment_id: str, body: DecisionInput,
         raise HTTPException(status_code=403, detail="Not your course")
 
 
+@app.get("/courses/{course_id}/recommendations")
+async def recommendations(course_id: str, topic: Optional[str] = None,
+                          user: dict = Depends(get_current_user)):
+    """Recommended readings for a syllabus topic (or the whole course)."""
+    _require_db()
+    try:
+        return await rag.recommend_sources(course_id, topic)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.get("/me/progress")
 async def my_progress(course_id: str, user: dict = Depends(get_current_user)):
     """A student's own stats for a course: comprehension, per-topic mastery, over time."""
