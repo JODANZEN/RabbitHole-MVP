@@ -54,4 +54,22 @@ def init_db() -> None:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE courses ADD COLUMN IF NOT EXISTS owner_id varchar"))
         conn.execute(text("ALTER TABLE courses ADD COLUMN IF NOT EXISTS join_code varchar"))
+
+    # Backfill join codes for courses created before the feature existed.
+    import random
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    with engine.begin() as conn:
+        existing = {r[0] for r in conn.execute(text(
+            "SELECT join_code FROM courses WHERE join_code IS NOT NULL"))}
+        missing = conn.execute(text(
+            "SELECT id FROM courses WHERE join_code IS NULL OR join_code = ''")).fetchall()
+        for (cid,) in missing:
+            code = "".join(random.choices(alphabet, k=6))
+            while code in existing:
+                code = "".join(random.choices(alphabet, k=6))
+            existing.add(code)
+            conn.execute(text("UPDATE courses SET join_code = :c WHERE id = :i"),
+                         {"c": code, "i": cid})
+        if missing:
+            print(f"[RabbitHole] Backfilled join codes for {len(missing)} course(s)")
     print("[RabbitHole] Database ready (pgvector enabled, tables created)")
