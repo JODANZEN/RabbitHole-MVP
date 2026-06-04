@@ -2,9 +2,13 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api, Course, Quiz, QuizSummary, QuizQuestion } from '../lib/api';
 import Header from '../components/Header';
+import { useAuth } from '../auth/AuthContext';
 
 export default function QuizManager() {
   const { id } = useParams();
+  const { profile } = useAuth();
+  const isTeacher = profile?.role === 'teacher';
+  const backTo = isTeacher ? `/course/${id}` : `/class/${id}`;
   const [course, setCourse] = useState<Course | null>(null);
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [editing, setEditing] = useState<Quiz | null>(null);
@@ -100,7 +104,7 @@ export default function QuizManager() {
   if (editing) {
     return (
       <div className="page">
-        <Header subtitle="Teacher" />
+        <Header subtitle={isTeacher ? 'Teacher' : 'Student'} />
         <main className="container">
           <a className="muted small" onClick={() => setEditing(null)}>← Back to quizzes</a>
           <div className="row-between">
@@ -145,7 +149,7 @@ export default function QuizManager() {
     <div className="page">
       <Header subtitle="Teacher" />
       <main className="container">
-        <Link to={`/course/${id}`} className="muted small">← {course?.name || 'Course'}</Link>
+        <Link to={backTo} className="muted small">← {course?.name || 'Course'}</Link>
         <h1>Quizzes</h1>
 
         <div className="card">

@@ -27,6 +27,7 @@ export default function App() {
         <>
           <Route path="/" element={<StudentDashboard />} />
           <Route path="/class/:id" element={<StudentClass />} />
+          <Route path="/course/:id/quizzes" element={<QuizManager />} />
         </>
       )}
       <Route path="*" element={<Navigate to="/" replace />} />

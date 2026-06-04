@@ -3,9 +3,11 @@ import { useParams, Link } from 'react-router-dom';
 import { api, Course, Quiz, QuizSummary, AttemptResult, Progress, Recommendations } from '../lib/api';
 import Header from '../components/Header';
 import { ComprehensionChart, TopicMasteryBars } from '../components/Charts';
+import { useAuth } from '../auth/AuthContext';
 
 export default function StudentClass() {
   const { id } = useParams();
+  const { profile } = useAuth();
   const [course, setCourse] = useState<Course | null>(null);
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [taking, setTaking] = useState<Quiz | null>(null);
@@ -143,7 +145,14 @@ export default function StudentClass() {
     <div className="page">
       <Header subtitle="Student" />
       <main className="container">
-        <Link to="/" className="muted small">← My classes</Link>
+        <div className="row-between">
+          <Link to="/" className="muted small">← My classes</Link>
+          {course && profile && course.owner_id === profile.id && (
+            <Link to={`/course/${id}/quizzes`} className="btn primary small" style={{ marginTop: 0, width: 'auto', textDecoration: 'none' }}>
+              Manage quizzes →
+            </Link>
+          )}
+        </div>
         <h1>{course?.name || 'Class'}</h1>
 
         <div className="card tip">

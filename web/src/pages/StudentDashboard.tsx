@@ -10,6 +10,10 @@ export default function StudentDashboard() {
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
   const [joining, setJoining] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [cName, setCName] = useState('');
+  const [cSyllabus, setCSyllabus] = useState('');
+  const [creating, setCreating] = useState(false);
 
   async function load() {
     try { setEnrollments((await api.myEnrollments()).enrollments); }
@@ -36,6 +40,18 @@ export default function StudentDashboard() {
     } finally {
       setJoining(false);
     }
+  }
+
+  async function createPersonal(e: React.FormEvent) {
+    e.preventDefault();
+    if (cSyllabus.trim().length < 100) { setMsg('Paste a bit more of your syllabus (a few sentences).'); return; }
+    setCreating(true); setMsg('');
+    try {
+      await api.createCourse(cName.trim(), cSyllabus);
+      setCName(''); setCSyllabus(''); setShowCreate(false);
+      await load();
+    } catch (e: any) { setMsg(e.message); }
+    finally { setCreating(false); }
   }
 
   const active = enrollments.filter((e) => e.status === 'active');
@@ -97,18 +113,36 @@ export default function StudentDashboard() {
               <p className="muted">You haven't joined any classes yet. Enter a join code above, or create your own study course in the extension.</p>
             )}
 
-            {ownCourses.length > 0 && (
-              <>
-                <h2>My study courses <span className="muted small" style={{ fontWeight: 400 }}>(no teacher — just you)</span></h2>
-                <div className="grid">
-                  {ownCourses.map((c) => (
-                    <Link key={c.id} to={`/class/${c.id}`} className="card course-card">
-                      <div className="course-name">📘 {c.name}</div>
-                      <div className="muted small">{c.reading_count} readings · quizzes, progress & readings →</div>
-                    </Link>
-                  ))}
-                </div>
-              </>
+            <div className="row-between" style={{ marginTop: 28 }}>
+              <h2 style={{ margin: 0 }}>My study courses <span className="muted small" style={{ fontWeight: 400 }}>(no teacher — just you)</span></h2>
+              <button className="btn primary small" style={{ marginTop: 0, width: 'auto' }} onClick={() => setShowCreate(!showCreate)}>
+                {showCreate ? 'Cancel' : '+ New personal course'}
+              </button>
+            </div>
+
+            {showCreate && (
+              <form className="card" onSubmit={createPersonal} style={{ marginTop: 12 }}>
+                <label>Course name</label>
+                <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="e.g. My Calculus Review" required />
+                <label>Syllabus</label>
+                <textarea rows={6} value={cSyllabus} onChange={(e) => setCSyllabus(e.target.value)} placeholder="Paste your syllabus — RabbitHole builds your topics, quizzes, and reading recs from it." />
+                <button className="btn primary" disabled={creating} type="submit">
+                  {creating ? 'Processing…' : 'Create course'}
+                </button>
+              </form>
+            )}
+
+            {ownCourses.length > 0 ? (
+              <div className="grid" style={{ marginTop: 12 }}>
+                {ownCourses.map((c) => (
+                  <Link key={c.id} to={`/class/${c.id}`} className="card course-card">
+                    <div className="course-name">📘 {c.name}</div>
+                    <div className="muted small">{c.reading_count} readings · quizzes, progress & readings →</div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              !showCreate && <p className="muted" style={{ marginTop: 8 }}>None yet. Create one from your syllabus, or make one in the extension.</p>
             )}
           </>
         )}

@@ -34,7 +34,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export interface Profile { id: string; email: string; name: string; role: string; }
-export interface Course { id: string; name: string; reading_count: number; join_code?: string; processed?: any; }
+export interface Course { id: string; name: string; reading_count: number; join_code?: string; owner_id?: string | null; processed?: any; }
 export interface TopicMastery { topic: string; pct: number; }
 export interface OverTimePoint { period: string; pct: number; }
 export interface Insights {
