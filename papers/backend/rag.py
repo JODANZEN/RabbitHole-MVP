@@ -13,8 +13,10 @@ from typing import List, Dict, Any, Optional
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, delete
 
+from datetime import datetime
+
 from .database import get_session
-from .models import Course, Reading, Chunk
+from .models import Course, Reading, Chunk, Profile, QuestionLog
 from .embeddings import embed_texts, embed_text
 from .llm_service import generate_answer, process_syllabus
 
@@ -60,10 +62,10 @@ def chunk_text(text: str, max_chars: int = 1200, overlap: int = 150) -> List[str
 
 # ── Sync DB helpers (run in threadpool) ──────────────────────────────
 
-def _create_course_row(name: str, syllabus: str, processed: dict) -> str:
+def _create_course_row(name: str, syllabus: str, processed: dict, owner_id: Optional[str]) -> str:
     session = get_session()
     try:
-        course = Course(name=name, syllabus=syllabus, processed=processed)
+        course = Course(name=name, syllabus=syllabus, processed=processed, owner_id=owner_id)
         session.add(course)
         session.commit()
         return course.id
@@ -128,10 +130,13 @@ def _get_course(course_id: str) -> Optional[Dict[str, Any]]:
         session.close()
 
 
-def _list_courses() -> List[Dict[str, Any]]:
+def _list_courses(owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
     session = get_session()
     try:
-        rows = session.execute(select(Course).order_by(Course.created_at.desc())).scalars().all()
+        stmt = select(Course).order_by(Course.created_at.desc())
+        if owner_id:
+            stmt = stmt.where(Course.owner_id == owner_id)
+        rows = session.execute(stmt).scalars().all()
         return [c.to_dict() for c in rows]
     finally:
         session.close()
@@ -152,11 +157,11 @@ def _delete_course(course_id: str) -> bool:
 
 # ── Async orchestrators ──────────────────────────────────────────────
 
-async def create_course(name: str, syllabus: str) -> Dict[str, Any]:
+async def create_course(name: str, syllabus: str, owner_id: Optional[str] = None) -> Dict[str, Any]:
     """Process a syllabus, store the course, and embed the syllabus for RAG."""
     processed = await process_syllabus(syllabus) if syllabus.strip() else {}
     final_name = name or processed.get("course_name") or "My Course"
-    course_id = await run_in_threadpool(_create_course_row, final_name, syllabus, processed)
+    course_id = await run_in_threadpool(_create_course_row, final_name, syllabus, processed, owner_id)
 
     if syllabus.strip():
         chunks = chunk_text(syllabus)
@@ -252,9 +257,122 @@ async def get_course(course_id: str) -> Optional[Dict[str, Any]]:
     return await run_in_threadpool(_get_course, course_id)
 
 
-async def list_courses() -> List[Dict[str, Any]]:
-    return await run_in_threadpool(_list_courses)
+async def list_courses(owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    return await run_in_threadpool(_list_courses, owner_id)
 
 
 async def delete_course(course_id: str) -> bool:
     return await run_in_threadpool(_delete_course, course_id)
+
+
+# ── Profiles (web app identity) ──────────────────────────────────────
+
+def _get_or_create_profile(user_id: str, email: str) -> Dict[str, Any]:
+    session = get_session()
+    try:
+        p = session.get(Profile, user_id)
+        if not p:
+            p = Profile(id=user_id, email=email, role="")
+            session.add(p)
+            session.commit()
+        return p.to_dict()
+    finally:
+        session.close()
+
+
+def _set_profile(user_id: str, role: Optional[str], name: Optional[str]) -> Dict[str, Any]:
+    session = get_session()
+    try:
+        p = session.get(Profile, user_id)
+        if not p:
+            p = Profile(id=user_id, role="")
+            session.add(p)
+        if role is not None:
+            p.role = role
+        if name is not None:
+            p.name = name
+        session.commit()
+        return p.to_dict()
+    finally:
+        session.close()
+
+
+async def get_or_create_profile(user_id: str, email: str) -> Dict[str, Any]:
+    return await run_in_threadpool(_get_or_create_profile, user_id, email)
+
+
+async def update_profile(user_id: str, role=None, name=None) -> Dict[str, Any]:
+    return await run_in_threadpool(_set_profile, user_id, role, name)
+
+
+# ── Question logging + teacher insights ──────────────────────────────
+
+def _log_question(course_id: str, question: str, user_id: Optional[str]) -> None:
+    session = get_session()
+    try:
+        session.add(QuestionLog(course_id=course_id, question=question, user_id=user_id))
+        session.commit()
+    finally:
+        session.close()
+
+
+def _recent_questions(course_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    session = get_session()
+    try:
+        rows = (
+            session.execute(
+                select(QuestionLog)
+                .where(QuestionLog.course_id == course_id)
+                .order_by(QuestionLog.created_at.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {"question": r.question, "created_at": r.created_at.isoformat() if r.created_at else None}
+            for r in rows
+        ]
+    finally:
+        session.close()
+
+
+async def log_question(course_id: str, question: str, user_id: Optional[str] = None) -> None:
+    try:
+        await run_in_threadpool(_log_question, course_id, question, user_id)
+    except Exception as e:
+        print(f"[RabbitHole] question log failed (ignored): {e}")
+
+
+async def course_insights(course_id: str) -> Dict[str, Any]:
+    """Aggregate recent student questions into 'where the class is struggling' themes."""
+    course = await run_in_threadpool(_get_course, course_id)
+    if not course:
+        raise ValueError("Course not found")
+    questions = await run_in_threadpool(_recent_questions, course_id, 100)
+
+    themes: List[Dict[str, Any]] = []
+    if len(questions) >= 3:
+        joined = "\n".join(f"- {q['question']}" for q in questions[:60])
+        prompt = f"""You are analyzing the questions students asked an AI tutor for the course "{course['name']}".
+Identify the 3-6 topics students seem to struggle with most, based on what they ask about.
+
+STUDENT QUESTIONS:
+{joined}
+
+Return ONLY valid JSON — no markdown:
+{{"themes":[{{"topic":"<short topic name>","why":"<one phrase on what they're confused about>","count":<approx number of related questions>}}]}}"""
+        try:
+            import json
+            raw = await generate_answer(prompt, temperature=0.2)
+            raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            themes = json.loads(raw).get("themes", [])
+        except Exception as e:
+            print(f"[RabbitHole] insights theme extraction failed: {e}")
+
+    return {
+        "course": {"id": course["id"], "name": course["name"]},
+        "question_count": len(questions),
+        "recent": questions[:25],
+        "themes": themes,
+    }

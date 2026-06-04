@@ -23,10 +23,36 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+class Profile(Base):
+    """Mirror of a Supabase auth user + their app role."""
+    __tablename__ = "profiles"
+
+    id = Column(String, primary_key=True)        # Supabase auth user id
+    email = Column(String, default="")
+    name = Column(String, default="")
+    role = Column(String, default="")            # 'student' | 'teacher' | ''
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "email": self.email, "name": self.name, "role": self.role}
+
+
+class QuestionLog(Base):
+    """One row per tutor question — powers the teacher 'where are they struggling' view."""
+    __tablename__ = "question_log"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    course_id = Column(String, ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    user_id = Column(String, nullable=True)      # set once the extension has auth
+    question = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class Course(Base):
     __tablename__ = "courses"
 
     id = Column(String, primary_key=True, default=_uuid)
+    owner_id = Column(String, nullable=True, index=True)  # teacher who created it
     name = Column(String, nullable=False)
     syllabus = Column(Text, default="")
     processed = Column(JSON, default=dict)  # weeks, key_concepts, learning_outcomes
@@ -42,6 +68,7 @@ class Course(Base):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "owner_id": self.owner_id,
             "name": self.name,
             "syllabus": self.syllabus,
             "processed": self.processed or {},

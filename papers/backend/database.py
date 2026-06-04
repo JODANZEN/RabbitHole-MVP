@@ -50,4 +50,7 @@ def init_db() -> None:
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
+    # Idempotent migrations for columns added to pre-existing tables.
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE courses ADD COLUMN IF NOT EXISTS owner_id varchar"))
     print("[RabbitHole] Database ready (pgvector enabled, tables created)")

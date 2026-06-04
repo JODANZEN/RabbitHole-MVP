@@ -11,9 +11,11 @@ from typing import Optional, List
 from datetime import datetime
 import json
 import os
+from fastapi import Depends
 from .llm_service import analyze_paper, explain_text, find_related_papers
 from . import rag
 from .database import init_db, db_configured
+from .auth import get_current_user, auth_configured
 
 # ─── Analysis cache ──────────────────────────────────────────────────
 # Keyed by URL. Persists to disk so restarts don't re-cost API calls.
@@ -139,6 +141,11 @@ class AskInput(BaseModel):
     question: str
     k: Optional[int] = 6
     history: Optional[List[dict]] = None   # [{role: 'user'|'tutor', text}]
+
+
+class RoleInput(BaseModel):
+    role: Optional[str] = None             # 'student' | 'teacher'
+    name: Optional[str] = None
 
 
 # ─── Analysis endpoint ───────────────────────────────────────────────
@@ -455,22 +462,58 @@ def _require_db():
 
 
 @app.post("/courses")
-async def create_course(body: CourseCreate):
-    """Create a course from a syllabus: parse structure + embed for RAG."""
+async def create_course(body: CourseCreate, user: dict = Depends(get_current_user)):
+    """Create a course from a syllabus: parse structure + embed for RAG. (Teacher/owner.)"""
     _require_db()
     if not body.name.strip() and not body.syllabus.strip():
         raise HTTPException(status_code=422, detail="Provide a course name or syllabus")
-    print(f"[RabbitHole] /courses — name='{body.name}', syllabus_len={len(body.syllabus)}")
+    print(f"[RabbitHole] /courses — name='{body.name}', owner={user.get('id')}")
     try:
-        return await rag.create_course(body.name.strip(), body.syllabus)
+        return await rag.create_course(body.name.strip(), body.syllabus, owner_id=user.get("id"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/courses")
 async def list_courses():
+    """List all courses (used by the extension's course picker, unauthenticated)."""
     _require_db()
     return {"courses": await rag.list_courses()}
+
+
+@app.get("/me/courses")
+async def my_courses(user: dict = Depends(get_current_user)):
+    """Courses owned by the authenticated teacher."""
+    _require_db()
+    return {"courses": await rag.list_courses(owner_id=user.get("id"))}
+
+
+# ─── Profile (web app identity) ─────────────────────────────────────
+
+@app.get("/me")
+async def get_me(user: dict = Depends(get_current_user)):
+    _require_db()
+    return await rag.get_or_create_profile(user["id"], user.get("email", ""))
+
+
+@app.post("/me")
+async def set_me(body: RoleInput, user: dict = Depends(get_current_user)):
+    _require_db()
+    if body.role and body.role not in ("student", "teacher"):
+        raise HTTPException(status_code=422, detail="role must be 'student' or 'teacher'")
+    return await rag.update_profile(user["id"], role=body.role, name=body.name)
+
+
+@app.get("/courses/{course_id}/insights")
+async def course_insights(course_id: str, user: dict = Depends(get_current_user)):
+    """Teacher view: aggregate recent student questions into struggle themes."""
+    _require_db()
+    try:
+        return await rag.course_insights(course_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/courses/{course_id}")
@@ -516,7 +559,9 @@ async def ask_course(course_id: str, body: AskInput):
         raise HTTPException(status_code=422, detail="Question is too short")
     print(f"[RabbitHole] /courses/{course_id}/ask — q='{q[:80]}'")
     try:
-        return await rag.answer_question(course_id, q, body.k or 6, body.history)
+        result = await rag.answer_question(course_id, q, body.k or 6, body.history)
+        await rag.log_question(course_id, q)   # fuels the teacher insights view
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -527,7 +572,7 @@ async def ask_course(course_id: str, body: AskInput):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.4.0", "db": db_configured()}
+    return {"status": "ok", "version": "0.4.0", "db": db_configured(), "auth": auth_configured()}
 
 
 if __name__ == "__main__":
