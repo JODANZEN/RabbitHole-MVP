@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, Enrollment } from '../lib/api';
 import Header from '../components/Header';
 
@@ -66,10 +67,10 @@ export default function StudentDashboard() {
                 <h2>Enrolled</h2>
                 <div className="grid">
                   {active.map((e) => (
-                    <div key={e.enrollment_id} className="card course-card">
+                    <Link key={e.enrollment_id} to={`/class/${e.course.id}`} className="card course-card">
                       <div className="course-name">🎓 {e.course.name}</div>
-                      <div className="muted small">{e.course.reading_count} readings · ask the tutor in the extension</div>
-                    </div>
+                      <div className="muted small">{e.course.reading_count} readings · quizzes + tutor →</div>
+                    </Link>
                   ))}
                 </div>
               </>

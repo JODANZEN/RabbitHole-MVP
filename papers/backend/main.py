@@ -167,6 +167,10 @@ class QuizUpdateInput(BaseModel):
     status: Optional[str] = None               # 'draft' | 'published'
 
 
+class AttemptInput(BaseModel):
+    answers: List[int]                         # chosen option index per question, in order
+
+
 # ─── Analysis endpoint ───────────────────────────────────────────────
 
 @app.post("/analyze", response_model=AnalysisResponse)
@@ -572,6 +576,28 @@ async def get_quiz(quiz_id: str, user: dict = Depends(get_current_user)):
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return quiz
+
+
+@app.get("/quizzes/{quiz_id}/take")
+async def take_quiz(quiz_id: str, user: dict = Depends(get_current_user)):
+    """Student view of a quiz — questions only, answers hidden. Published quizzes only."""
+    _require_db()
+    quiz = await rag.get_quiz(quiz_id, include_answers=False)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    if quiz["status"] != "published":
+        raise HTTPException(status_code=403, detail="This quiz isn't published yet")
+    return quiz
+
+
+@app.post("/quizzes/{quiz_id}/attempt")
+async def attempt_quiz(quiz_id: str, body: AttemptInput, user: dict = Depends(get_current_user)):
+    """Grade a student's answers, store the attempt, and return per-question results."""
+    _require_db()
+    try:
+        return await rag.grade_attempt(quiz_id, user["id"], body.answers)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.put("/quizzes/{quiz_id}")

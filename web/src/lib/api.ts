@@ -57,6 +57,10 @@ export interface Enrollment {
 export interface QuizQuestion { id?: string; prompt: string; options: string[]; correct_index: number; explanation: string; }
 export interface Quiz { id: string; course_id: string; topic: string; week?: number | null; status: string; questions: QuizQuestion[]; }
 export interface QuizSummary { id: string; topic: string; week?: number | null; status: string; question_count: number; created_at: string; }
+export interface AttemptResult {
+  score: number; total: number; topic: string;
+  results: { prompt: string; options: string[]; your_index: number; correct_index: number; explanation: string; correct: boolean }[];
+}
 
 export const api = {
   me:          ()                         => request<Profile>('/me'),
@@ -79,4 +83,6 @@ export const api = {
   getQuiz:     (quizId: string)           => request<Quiz>(`/quizzes/${quizId}`),
   updateQuiz:  (quizId: string, questions: QuizQuestion[] | null, status?: string) => request<Quiz>(`/quizzes/${quizId}`, { method: 'PUT', body: JSON.stringify({ questions, status }) }),
   deleteQuiz:  (quizId: string)           => request<{ status: string }>(`/quizzes/${quizId}`, { method: 'DELETE' }),
+  takeQuiz:    (quizId: string)           => request<Quiz>(`/quizzes/${quizId}/take`),
+  submitAttempt: (quizId: string, answers: number[]) => request<AttemptResult>(`/quizzes/${quizId}/attempt`, { method: 'POST', body: JSON.stringify({ answers }) }),
 };

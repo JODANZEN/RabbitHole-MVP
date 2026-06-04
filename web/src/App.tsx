@@ -6,6 +6,7 @@ import TeacherDashboard from './pages/TeacherDashboard';
 import CourseInsights from './pages/CourseInsights';
 import QuizManager from './pages/QuizManager';
 import StudentDashboard from './pages/StudentDashboard';
+import StudentClass from './pages/StudentClass';
 
 export default function App() {
   const { session, profile, loading } = useAuth();
@@ -23,7 +24,10 @@ export default function App() {
           <Route path="/course/:id/quizzes" element={<QuizManager />} />
         </>
       ) : (
-        <Route path="/" element={<StudentDashboard />} />
+        <>
+          <Route path="/" element={<StudentDashboard />} />
+          <Route path="/class/:id" element={<StudentClass />} />
+        </>
       )}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

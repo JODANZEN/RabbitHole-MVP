@@ -500,6 +500,39 @@ def _delete_quiz(quiz_id, user_id) -> bool:
         session.close()
 
 
+def _grade_attempt(quiz_id, student_id, answers) -> Dict[str, Any]:
+    session = get_session()
+    try:
+        quiz = session.get(Quiz, quiz_id)
+        if not quiz:
+            raise ValueError("Quiz not found")
+        qs = quiz.questions  # ordered by position
+        total = len(qs)
+        score = 0
+        results = []
+        for i, q in enumerate(qs):
+            your = answers[i] if i < len(answers) else -1
+            ok = your == q.correct_index
+            if ok:
+                score += 1
+            results.append({
+                "prompt": q.prompt, "options": q.options or [],
+                "your_index": your, "correct_index": q.correct_index,
+                "explanation": q.explanation, "correct": ok,
+            })
+        session.add(QuizAttempt(
+            quiz_id=quiz.id, course_id=quiz.course_id, student_id=student_id,
+            topic=quiz.topic, score=score, total=total, answers=answers))
+        session.commit()
+        return {"score": score, "total": total, "topic": quiz.topic, "results": results}
+    finally:
+        session.close()
+
+
+async def grade_attempt(quiz_id, student_id, answers) -> Dict[str, Any]:
+    return await run_in_threadpool(_grade_attempt, quiz_id, student_id, answers)
+
+
 async def update_quiz(quiz_id, questions, status, user_id) -> Dict[str, Any]:
     return await run_in_threadpool(_update_quiz, quiz_id, questions, status, user_id)
 
