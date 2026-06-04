@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "RabbitHole",
-  "version": "0.2.0",
-  "description": "Research assistant that analyzes articles and papers for difficulty, key concepts, and learning recommendations",
-  "permissions": ["activeTab", "scripting"],
+  "version": "0.3.0",
+  "description": "Research assistant: analyzes papers, explains complex terms, tracks your learning journey",
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
   "host_permissions": ["*://*/*"],
   "content_scripts": [
     {
