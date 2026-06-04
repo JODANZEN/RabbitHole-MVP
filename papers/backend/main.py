@@ -15,7 +15,7 @@ from fastapi import Depends
 from .llm_service import analyze_paper, explain_text, find_related_papers
 from . import rag
 from .database import init_db, db_configured
-from .auth import get_current_user, auth_configured
+from .auth import get_current_user, get_optional_user, auth_configured
 
 # ─── Analysis cache ──────────────────────────────────────────────────
 # Keyed by URL. Persists to disk so restarts don't re-cost API calls.
@@ -462,14 +462,16 @@ def _require_db():
 
 
 @app.post("/courses")
-async def create_course(body: CourseCreate, user: dict = Depends(get_current_user)):
-    """Create a course from a syllabus: parse structure + embed for RAG. (Teacher/owner.)"""
+async def create_course(body: CourseCreate, user: Optional[dict] = Depends(get_optional_user)):
+    """Create a course from a syllabus. Auth optional: a token (web dashboard) sets the
+    owner; the unauthenticated extension creates an ownerless course."""
     _require_db()
     if not body.name.strip() and not body.syllabus.strip():
         raise HTTPException(status_code=422, detail="Provide a course name or syllabus")
-    print(f"[RabbitHole] /courses — name='{body.name}', owner={user.get('id')}")
+    owner = user.get("id") if user else None
+    print(f"[RabbitHole] /courses — name='{body.name}', owner={owner}")
     try:
-        return await rag.create_course(body.name.strip(), body.syllabus, owner_id=user.get("id"))
+        return await rag.create_course(body.name.strip(), body.syllabus, owner_id=owner)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

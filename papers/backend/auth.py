@@ -40,3 +40,14 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     if resp.status_code != 200:
         raise HTTPException(401, "Invalid or expired session")
     return resp.json()  # { id, email, ... }
+
+
+async def get_optional_user(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    """Like get_current_user but returns None instead of raising when there's no
+    valid token. Used by endpoints the unauthenticated extension also calls."""
+    if not authorization or not auth_configured():
+        return None
+    try:
+        return await get_current_user(authorization)
+    except HTTPException:
+        return None
