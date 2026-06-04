@@ -13,19 +13,30 @@
 'use strict';
 
 const GEMINI_API_URL     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-const API_KEY_STORAGE    = 'rabbithole_api_key';
+const GROQ_API_URL       = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL         = 'llama-3.3-70b-versatile';
+const GEMINI_KEY_STORAGE = 'rabbithole_gemini_key';
+const GROQ_KEY_STORAGE   = 'rabbithole_groq_key';
 const REQUEST_TIMEOUT_MS = 30_000;
 const SESSION_KEY        = 'rabbithole_session';   // key in chrome.storage.local
 
-// ── Gemini helpers ────────────────────────────────────────────────────
+// ── API key helpers ────────────────────────────────────────────────────
 
-function getApiKey() {
+function getApiKeys() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(API_KEY_STORAGE, (r) => resolve(r[API_KEY_STORAGE] || ''));
+    chrome.storage.local.get([GEMINI_KEY_STORAGE, GROQ_KEY_STORAGE], (r) => {
+      resolve({ gemini: r[GEMINI_KEY_STORAGE] || '', groq: r[GROQ_KEY_STORAGE] || '' });
+    });
   });
 }
 
-async function callGemini(prompt, apiKey) {
+// ── LLM callers (Gemini primary → Groq fallback) ─────────────────────
+
+function isQuotaError(status, msg) {
+  return status === 429 || (msg || '').toLowerCase().includes('quota') || (msg || '').toLowerCase().includes('rate_limit');
+}
+
+async function _callGemini(prompt, apiKey) {
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -42,10 +53,10 @@ async function callGemini(prompt, apiKey) {
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       const msg = err?.error?.message || `HTTP ${response.status}`;
-      if (response.status === 400 && msg.includes('API_KEY')) throw new Error('Invalid API key. Check your key in the RabbitHole popup.');
-      if (response.status === 429) throw new Error('Gemini rate limit hit — wait a moment and try again.');
-      if (response.status === 403) throw new Error('API key not authorized. Make sure the Gemini API is enabled in Google AI Studio.');
-      throw new Error(msg);
+      if (isQuotaError(response.status, msg)) { const e = new Error(msg); e.isQuota = true; throw e; }
+      if (response.status === 400 && msg.includes('API_KEY')) throw new Error('Invalid Gemini key. Open ⚙️ settings to update it.');
+      if (response.status === 403) throw new Error('Gemini key not authorized. Enable the API at aistudio.google.com.');
+      throw new Error(`Gemini: ${msg}`);
     }
     const data = await response.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -53,6 +64,62 @@ async function callGemini(prompt, apiKey) {
     return JSON.parse(clean);
   } finally {
     clearTimeout(tid);
+  }
+}
+
+async function _callGroq(prompt, apiKey) {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.0,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(tid);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const msg = err?.error?.message || `HTTP ${response.status}`;
+      if (isQuotaError(response.status, msg)) { const e = new Error(msg); e.isQuota = true; throw e; }
+      if (response.status === 401) throw new Error('Invalid Groq key. Open ⚙️ settings to update it.');
+      throw new Error(`Groq: ${msg}`);
+    }
+    const data = await response.json();
+    const text = data?.choices?.[0]?.message?.content || '';
+    const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    return JSON.parse(clean);
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+async function callLLM(prompt) {
+  const { gemini, groq } = await getApiKeys();
+  if (!gemini && !groq) {
+    throw new Error('no_keys');
+  }
+  // Try Gemini first, fall back to Groq on quota errors
+  if (gemini) {
+    try {
+      return await _callGemini(prompt, gemini);
+    } catch (err) {
+      if (err.isQuota && groq) {
+        console.debug('[RabbitHole] Gemini quota hit — falling back to Groq');
+      } else {
+        throw err;
+      }
+    }
+  }
+  if (groq) {
+    return await _callGroq(prompt, groq);
   }
 }
 
@@ -414,9 +481,7 @@ async function inferResearchArea(session) {
   }
 
   try {
-    const apiKey = await getApiKey();
-    if (!apiKey) return null;
-    const data = await callGemini(buildResearchAreaPrompt(topConcepts), apiKey);
+    const data = await callLLM(buildResearchAreaPrompt(topConcepts));
 
     session.research_area     = data;
     session.research_area_key = cacheKey;
@@ -630,10 +695,52 @@ function ensurePanel() {
         display:none; font-size:10px; background:rgba(255,255,255,0.22);
         color:#fff; padding:2px 8px; border-radius:10px; white-space:nowrap;
       ">Session active</span>
+      <button id="rh-settings-btn" title="Settings" style="
+        background:none; border:none; color:rgba(255,255,255,0.8);
+        font-size:15px; cursor:pointer; padding:0 6px 0 0; line-height:1;
+      ">⚙️</button>
       <button id="rh-close" style="
         background:none; border:none; color:rgba(255,255,255,0.8);
         font-size:20px; cursor:pointer; padding:0; line-height:1;
       ">×</button>
+    </div>
+
+    <!-- Settings overlay (hidden by default) -->
+    <div id="rh-settings-overlay" style="
+      display:none; flex-shrink:0; padding:14px 16px;
+      background:#fafafa; border-bottom:1px solid #e8e5f5;
+    ">
+      <p style="font-size:11px; font-weight:700; color:#555; text-transform:uppercase;
+        letter-spacing:.05em; margin:0 0 10px;">API Keys</p>
+
+      <label style="font-size:11px; color:#666; font-weight:600;">
+        Gemini <span style="font-weight:400; color:#aaa;">(primary · <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
+      </label>
+      <div style="display:flex; gap:6px; margin:4px 0 10px;">
+        <input id="rh-gemini-key-input" type="password" placeholder="AIza…"
+          style="flex:1; padding:7px 9px; border:1.5px solid #d4d8f0; border-radius:7px;
+            font-size:12px; font-family:monospace; outline:none;" />
+        <button id="rh-gemini-vis" style="padding:6px 9px; border:1.5px solid #d4d8f0;
+          border-radius:7px; background:#f4f4ff; cursor:pointer; font-size:12px;">👁</button>
+      </div>
+
+      <label style="font-size:11px; color:#666; font-weight:600;">
+        Groq <span style="font-weight:400; color:#aaa;">(fallback · <a href="https://console.groq.com/keys" target="_blank" style="color:#667eea; text-decoration:none;">get free key</a>)</span>
+      </label>
+      <div style="display:flex; gap:6px; margin:4px 0 12px;">
+        <input id="rh-groq-key-input" type="password" placeholder="gsk_…"
+          style="flex:1; padding:7px 9px; border:1.5px solid #d4d8f0; border-radius:7px;
+            font-size:12px; font-family:monospace; outline:none;" />
+        <button id="rh-groq-vis" style="padding:6px 9px; border:1.5px solid #d4d8f0;
+          border-radius:7px; background:#f4f4ff; cursor:pointer; font-size:12px;">👁</button>
+      </div>
+
+      <button id="rh-save-keys-btn" style="
+        width:100%; padding:9px; background:linear-gradient(135deg,#667eea,#764ba2);
+        color:#fff; border:none; border-radius:7px; font-size:12px;
+        font-weight:600; cursor:pointer;
+      ">Save Keys</button>
+      <div id="rh-keys-status" style="font-size:11px; text-align:center; min-height:14px; margin-top:6px; color:#48bb78;"></div>
     </div>
 
     <!-- Session bar -->
@@ -682,6 +789,49 @@ function ensurePanel() {
   // Close button
   panel.querySelector('#rh-close').addEventListener('click', () => {
     panel.style.display = 'none';
+  });
+
+  // Settings gear — toggle overlay and pre-fill saved keys
+  panel.querySelector('#rh-settings-btn').addEventListener('click', async () => {
+    const overlay = panel.querySelector('#rh-settings-overlay');
+    const isOpen  = overlay.style.display !== 'none';
+    overlay.style.display = isOpen ? 'none' : 'block';
+    if (!isOpen) {
+      const { gemini, groq } = await getApiKeys();
+      const gInput = panel.querySelector('#rh-gemini-key-input');
+      const rInput = panel.querySelector('#rh-groq-key-input');
+      if (gemini) gInput.value = gemini;
+      if (groq)   rInput.value = groq;
+    }
+  });
+
+  // Toggle key visibility
+  panel.querySelector('#rh-gemini-vis').addEventListener('click', () => {
+    const inp = panel.querySelector('#rh-gemini-key-input');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  });
+  panel.querySelector('#rh-groq-vis').addEventListener('click', () => {
+    const inp = panel.querySelector('#rh-groq-key-input');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  });
+
+  // Save keys
+  panel.querySelector('#rh-save-keys-btn').addEventListener('click', () => {
+    const gemini  = panel.querySelector('#rh-gemini-key-input').value.trim();
+    const groq    = panel.querySelector('#rh-groq-key-input').value.trim();
+    const statusEl = panel.querySelector('#rh-keys-status');
+    if (!gemini && !groq) { statusEl.style.color = '#e53e3e'; statusEl.textContent = 'Enter at least one key.'; return; }
+    const toSave = {};
+    if (gemini) toSave[GEMINI_KEY_STORAGE] = gemini;
+    if (groq)   toSave[GROQ_KEY_STORAGE]   = groq;
+    chrome.storage.local.set(toSave, () => {
+      statusEl.style.color = '#48bb78';
+      statusEl.textContent = '✓ Saved!';
+      setTimeout(() => {
+        statusEl.textContent = '';
+        panel.querySelector('#rh-settings-overlay').style.display = 'none';
+      }, 1500);
+    });
   });
 
   // Tab switching
@@ -796,9 +946,9 @@ function showPlaceholder(msg) {
 // ══════════════════════════════════════════════════════════════════════
 
 async function analyzeText() {
-  const apiKey = await getApiKey();
-  if (!apiKey) {
-    showError('No API key set. Click the 🐇 icon in the toolbar to add your free Gemini API key.');
+  const { gemini, groq } = await getApiKeys();
+  if (!gemini && !groq) {
+    showError('No API key set. Click ⚙️ in the panel header to add your Gemini or Groq key.');
     return;
   }
 
@@ -816,7 +966,7 @@ async function analyzeText() {
       return;
     }
 
-    const data = await callGemini(buildAnalysisPrompt(title, text, activeCourse), apiKey);
+    const data = await callLLM(buildAnalysisPrompt(title, text, activeCourse));
     lastAnalysisData = data;
     renderAnalysis(data);
     if (await isInSession()) recordVisit('page_analyzed', { level: data.level, concepts: data.concepts });
@@ -1030,18 +1180,12 @@ function renderCourseSetupForm(content) {
     if (!name) { statusEl.textContent = 'Enter a course name.'; return; }
     if (syllabus.length < 100) { statusEl.textContent = 'Paste more of your syllabus — need at least a few sentences.'; return; }
 
-    const apiKey = await getApiKey();
-    if (!apiKey) {
-      statusEl.textContent = 'No API key set — open the 🐇 popup to add your Gemini key first.';
-      return;
-    }
-
     btn.disabled = true;
     btn.textContent = '⏳ Processing syllabus…';
     statusEl.textContent = '';
 
     try {
-      const processed = await callGemini(buildSyllabusPrompt(syllabus), apiKey);
+      const processed = await callLLM(buildSyllabusPrompt(syllabus));
 
       const course = {
         id:         crypto.randomUUID(),
@@ -1345,22 +1489,22 @@ function hideDumbifyButton() {
 }
 
 async function triggerDumbify(text) {
-  const apiKey = await getApiKey();
+  const { gemini, groq } = await getApiKeys();
 
   ensurePanel();
   const panel = document.getElementById('rabbithole-panel');
   panel.style.display = 'flex';
   switchTab('analysis');
 
-  if (!apiKey) {
-    showError('No API key set. Click the 🐇 icon in the toolbar to add your free Gemini API key.');
+  if (!gemini && !groq) {
+    showError('No API key set. Click ⚙️ in the panel header to add your Gemini or Groq key.');
     return;
   }
 
   showLoading('Explaining in plain terms…');
 
   try {
-    const data = await callGemini(buildExplainPrompt(text), apiKey);
+    const data = await callLLM(buildExplainPrompt(text));
     renderDumbifyResult(data, text);
   } catch (error) {
     const msg = error.name === 'AbortError' ? 'Request timed out.' : error.message;

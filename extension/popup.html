@@ -6,162 +6,93 @@
   <title>RabbitHole Settings</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       width: 320px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #fff;
-      color: #333;
+      background: #fff; color: #333;
     }
-
     .header {
       background: linear-gradient(135deg, #667eea, #764ba2);
-      padding: 16px 18px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      padding: 16px 18px; display: flex; align-items: center; gap: 10px;
     }
-    .header-emoji { font-size: 22px; }
-    .header-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #fff;
-    }
-    .header-sub {
-      font-size: 11px;
-      color: rgba(255,255,255,0.75);
-    }
-
-    .body { padding: 18px; }
-
+    .header-title { font-size: 16px; font-weight: 700; color: #fff; }
+    .header-sub   { font-size: 11px; color: rgba(255,255,255,0.75); }
+    .body { padding: 16px 18px; }
+    .note { font-size: 11px; color: #888; margin-bottom: 14px; line-height: 1.5; }
     label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      color: #555;
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      display: block; font-size: 11px; font-weight: 600; color: #555;
+      text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px;
     }
-
-    .key-row {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 8px;
-    }
+    label span { font-weight: 400; color: #aaa; text-transform: none; }
+    label a { color: #667eea; text-decoration: none; }
+    label a:hover { text-decoration: underline; }
+    .key-row { display: flex; gap: 6px; margin-bottom: 12px; }
     .key-row input {
-      flex: 1;
-      padding: 8px 10px;
-      border: 1.5px solid #d4d8f0;
-      border-radius: 8px;
-      font-size: 13px;
-      font-family: monospace;
-      outline: none;
-      transition: border-color 0.15s;
+      flex: 1; padding: 8px 10px; border: 1.5px solid #d4d8f0;
+      border-radius: 8px; font-size: 12px; font-family: monospace; outline: none;
+      transition: border-color .15s;
     }
     .key-row input:focus { border-color: #667eea; }
     .key-row input.saved { border-color: #48bb78; background: #f0fff4; }
-
-    .toggle-btn {
-      padding: 8px 10px;
-      border: 1.5px solid #d4d8f0;
-      border-radius: 8px;
-      background: #f8f8ff;
-      cursor: pointer;
-      font-size: 14px;
-      color: #667eea;
-      transition: background 0.15s;
+    .vis-btn {
+      padding: 8px 10px; border: 1.5px solid #d4d8f0; border-radius: 8px;
+      background: #f8f8ff; cursor: pointer; font-size: 13px; color: #667eea;
     }
-    .toggle-btn:hover { background: #eef0fb; }
-
-    .hint {
-      font-size: 11px;
-      color: #888;
-      margin-bottom: 14px;
-      line-height: 1.5;
-    }
-    .hint a {
-      color: #667eea;
-      text-decoration: none;
-    }
-    .hint a:hover { text-decoration: underline; }
-
+    .vis-btn:hover { background: #eef0fb; }
     .save-btn {
-      width: 100%;
-      padding: 10px;
+      width: 100%; padding: 10px;
       background: linear-gradient(135deg, #667eea, #764ba2);
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.15s;
+      color: #fff; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
     }
-    .save-btn:hover { opacity: 0.9; }
-    .save-btn:disabled { opacity: 0.5; cursor: default; }
-
-    .status {
-      margin-top: 10px;
-      font-size: 12px;
-      text-align: center;
-      min-height: 18px;
-      color: #48bb78;
-      font-weight: 600;
-    }
+    .save-btn:hover { opacity: .9; }
+    .save-btn:disabled { opacity: .5; cursor: default; }
+    .status { margin-top: 10px; font-size: 12px; text-align: center; min-height: 18px; color: #48bb78; font-weight: 600; }
     .status.error { color: #e53e3e; }
-
-    .divider {
-      border: none;
-      border-top: 1px solid #eee;
-      margin: 16px 0;
-    }
-
-    .info-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: #888;
-    }
-    .info-dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: #ccc;
-      flex-shrink: 0;
-    }
+    hr { border: none; border-top: 1px solid #eee; margin: 14px 0; }
+    .info-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #888; }
+    .info-dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
     .info-dot.active { background: #48bb78; }
   </style>
 </head>
 <body>
   <div class="header">
-    <span class="header-emoji">🐇</span>
+    <span style="font-size:22px;">🐇</span>
     <div>
       <div class="header-title">RabbitHole</div>
-      <div class="header-sub">Research Assistant</div>
+      <div class="header-sub">API Key Settings</div>
     </div>
   </div>
 
   <div class="body">
-    <label for="api-key">Gemini API Key</label>
-    <div class="key-row">
-      <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" spellcheck="false" />
-      <button class="toggle-btn" id="toggle-vis" title="Show/hide key">👁</button>
-    </div>
-    <p class="hint">
-      Your key is stored locally — it never leaves your browser.<br />
-      Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>
-      (1,500 free requests/day).
+    <p class="note">
+      Click the toolbar icon to open the panel and analyze pages.<br />
+      Keys are stored locally — never leave your browser.
     </p>
 
-    <button class="save-btn" id="save-btn">Save API Key</button>
+    <label for="gemini-key">
+      Gemini API Key <span>· primary · <a href="https://aistudio.google.com/apikey" target="_blank">get free key</a></span>
+    </label>
+    <div class="key-row">
+      <input type="password" id="gemini-key" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+      <button class="vis-btn" id="toggle-gemini">👁</button>
+    </div>
+
+    <label for="groq-key">
+      Groq API Key <span>· fallback · <a href="https://console.groq.com/keys" target="_blank">get free key</a></span>
+    </label>
+    <div class="key-row">
+      <input type="password" id="groq-key" placeholder="gsk_…" autocomplete="off" spellcheck="false" />
+      <button class="vis-btn" id="toggle-groq">👁</button>
+    </div>
+
+    <button class="save-btn" id="save-btn">Save Keys</button>
     <div class="status" id="status"></div>
 
-    <hr class="divider" />
-
+    <hr />
     <div class="info-row">
       <div class="info-dot" id="status-dot"></div>
-      <span id="status-label">No API key set</span>
+      <span id="status-label">No API keys set</span>
     </div>
   </div>
 
