@@ -64,7 +64,13 @@ export default function TeacherDashboard() {
               {courses.map((c) => (
                 <Link key={c.id} to={`/course/${c.id}`} className="card course-card">
                   <div className="course-name">🎓 {c.name}</div>
-                  <div className="muted small">{c.reading_count} readings · view insights →</div>
+                  <div className="muted small" style={{ marginBottom: 8 }}>{c.reading_count} readings · view insights →</div>
+                  {c.join_code && (
+                    <div className="small">
+                      <span className="muted">Join code </span>
+                      <span className="pill">{c.join_code}</span>
+                    </div>
+                  )}
                 </Link>
               ))}
             </div>

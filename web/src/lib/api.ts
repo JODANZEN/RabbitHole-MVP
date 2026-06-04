@@ -31,12 +31,28 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export interface Profile { id: string; email: string; name: string; role: string; }
-export interface Course { id: string; name: string; reading_count: number; processed?: any; }
+export interface Course { id: string; name: string; reading_count: number; join_code?: string; processed?: any; }
 export interface Insights {
   course: { id: string; name: string };
   question_count: number;
   recent: { question: string; created_at: string }[];
   themes: { topic: string; why: string; count: number }[];
+}
+export interface Member {
+  enrollment_id: string;
+  status: string;
+  student: { id: string; name: string; email: string };
+  requested_at: string;
+}
+export interface Roster {
+  course: { id: string; name: string; join_code: string };
+  pending: Member[];
+  active: Member[];
+}
+export interface Enrollment {
+  enrollment_id: string;
+  status: string;
+  course: { id: string; name: string; reading_count: number };
 }
 
 export const api = {
@@ -46,4 +62,9 @@ export const api = {
   allCourses:  ()                         => request<{ courses: Course[] }>('/courses'),
   createCourse:(name: string, syllabus: string) => request<Course>('/courses', { method: 'POST', body: JSON.stringify({ name, syllabus }) }),
   insights:    (courseId: string)         => request<Insights>(`/courses/${courseId}/insights`),
+  // enrollment
+  enroll:      (joinCode: string)         => request<{ status: string; course: { id: string; name: string } }>('/enroll', { method: 'POST', body: JSON.stringify({ join_code: joinCode }) }),
+  myEnrollments: ()                       => request<{ enrollments: Enrollment[] }>('/me/enrollments'),
+  roster:      (courseId: string)         => request<Roster>(`/courses/${courseId}/roster`),
+  decide:      (enrollmentId: string, status: 'active' | 'rejected') => request<{ status: string }>(`/enrollments/${enrollmentId}/decision`, { method: 'POST', body: JSON.stringify({ status }) }),
 };
