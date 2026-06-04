@@ -14,6 +14,7 @@
 
 import { getActiveCourseId, setActiveCourseId } from './db';
 import { signIn, signUp, signOut, getCurrentUser, getAccessToken } from './auth';
+import { startLive, stopLive, isLiveRunning } from './live';
 
 const GEMINI_API_URL     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const GROQ_API_URL       = 'https://api.groq.com/openai/v1/chat/completions';
@@ -364,6 +365,10 @@ let tutorBusy        = false;
 let ttsEnabled       = false;  // speak tutor answers aloud
 let recognizing      = false;  // mic actively listening
 let recognition      = null;   // SpeechRecognition instance (lazy)
+let liveOn           = false;  // Gemini Live voice call active
+let liveUserBuf      = '';     // accumulating live transcript (student)
+let liveTutorBuf     = '';     // accumulating live transcript (tutor)
+let liveUserPushed   = false;
 
 // ══════════════════════════════════════════════════════════════════════
 // ── Extension context guard ────────────────────────────────────────────
@@ -1650,10 +1655,23 @@ async function renderTutorTab() {
           <p style="font-size:12px; color:#ff5a1f; font-weight:700; margin:0;">🎓 ${escapeHtml(activeCourse.name)}</p>
           <p style="font-size:11px; color:#82828c; margin:2px 0 0;">Answers are grounded in your syllabus &amp; readings.</p>
         </div>
-        <button id="rh-tts-toggle" title="Read answers aloud" style="
-          flex-shrink:0; background:${ttsEnabled ? '#1c1613' : 'none'}; border:1px solid ${ttsEnabled ? '#ff5a1f' : '#2e2e36'};
-          border-radius:6px; padding:4px 8px; cursor:pointer; font-size:13px;
-          color:${ttsEnabled ? '#ff5a1f' : '#999'};">${ttsEnabled ? '🔊' : '🔇'}</button>
+        <div style="display:flex; gap:6px; flex-shrink:0;">
+          <button id="rh-live-btn" title="Start a live voice call" style="
+            background:linear-gradient(135deg,#ff5a1f,#e8480f); color:#fff; border:none;
+            border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px; font-weight:600;
+            white-space:nowrap;">🎙️ Live</button>
+          <button id="rh-tts-toggle" title="Read answers aloud" style="
+            background:${ttsEnabled ? '#1c1613' : 'none'}; border:1px solid ${ttsEnabled ? '#ff5a1f' : '#2e2e36'};
+            border-radius:6px; padding:4px 8px; cursor:pointer; font-size:13px;
+            color:${ttsEnabled ? '#ff5a1f' : '#999'};">${ttsEnabled ? '🔊' : '🔇'}</button>
+        </div>
+      </div>
+
+      <div id="rh-live-bar" style="display:none; flex-shrink:0; align-items:center; justify-content:space-between;
+        gap:8px; padding:8px 12px; margin-bottom:10px; background:#1c1613; border:1px solid #ff5a1f; border-radius:10px;">
+        <span id="rh-live-status" style="font-size:12px; font-weight:600; color:#ff5a1f;">● Connecting…</span>
+        <button id="rh-live-end" style="font-size:11px; background:#ff5a1f; color:#fff; border:none;
+          border-radius:6px; padding:4px 12px; cursor:pointer; font-weight:600;">End call</button>
       </div>
 
       <div id="rh-tutor-messages" style="flex:1; overflow-y:auto; padding-right:2px;"></div>
@@ -1696,6 +1714,76 @@ async function renderTutorTab() {
     tts.style.background   = ttsEnabled ? '#1c1613' : 'none';
     tts.style.borderColor  = ttsEnabled ? '#ff5a1f' : '#2e2e36';
     tts.style.color        = ttsEnabled ? '#ff5a1f' : '#999';
+  });
+
+  content.querySelector('#rh-live-btn').addEventListener('click', () => toggleLive());
+  content.querySelector('#rh-live-end').addEventListener('click', () => toggleLive());
+  if (liveOn) showLiveBar(true);
+}
+
+// ── Gemini Live: real-time voice call ─────────────────────────────────
+
+function buildLiveSystemInstruction(course) {
+  const base = 'You are RabbitHole, a warm, encouraging voice tutor. Keep replies short and conversational ' +
+    'since they are spoken aloud. Ask guiding questions, do not lecture. If you are unsure, say so briefly.';
+  if (!course) return base;
+  const p = course.processed || {};
+  const concepts = (p.key_concepts || []).slice(0, 15).join(', ');
+  return `${base}\n\nYou are tutoring the course "${course.name}".` +
+    (concepts ? `\nKey topics in this course: ${concepts}.` : '') +
+    `\nGround your help in this course's material and keep the student on track.`;
+}
+
+function showLiveBar(on) {
+  const bar = document.getElementById('rh-live-bar');
+  const btn = document.getElementById('rh-live-btn');
+  if (bar) bar.style.display = on ? 'flex' : 'none';
+  if (btn) btn.style.display = on ? 'none' : 'block';
+}
+
+function setLiveStatus(s) {
+  const el = document.getElementById('rh-live-status');
+  if (!el) return;
+  const map = { connecting: '● Connecting…', listening: '🎙️ Listening — just talk', speaking: '🔊 Tutor speaking…', off: '● Ended' };
+  el.textContent = map[s] || s;
+}
+
+async function toggleLive() {
+  if (liveOn || isLiveRunning()) {
+    stopLive();
+    liveOn = false;
+    showLiveBar(false);
+    return;
+  }
+  const { gemini } = await getApiKeys();
+  if (!gemini) { appendTutorNotice('Live voice needs a Gemini API key — add one in ⚙️ settings.'); return; }
+
+  liveOn = true;
+  liveUserBuf = ''; liveTutorBuf = ''; liveUserPushed = false;
+  showLiveBar(true);
+  setLiveStatus('connecting');
+
+  startLive(gemini, buildLiveSystemInstruction(activeCourse), {
+    onState: (s) => setLiveStatus(s),
+    onUserText: (t) => { liveUserBuf += t; },
+    onTutorText: (t) => {
+      // First tutor audio means the student's turn ended — flush their utterance.
+      if (liveUserBuf && !liveUserPushed) {
+        tutorMessages.push({ role: 'user', text: liveUserBuf.trim() });
+        liveUserPushed = true;
+        renderTutorMessages();
+      }
+      liveTutorBuf += t;
+    },
+    onTurnComplete: () => {
+      if (liveTutorBuf.trim()) { tutorMessages.push({ role: 'tutor', text: liveTutorBuf.trim(), sources: [] }); renderTutorMessages(); }
+      liveUserBuf = ''; liveTutorBuf = ''; liveUserPushed = false;
+    },
+    onError: (e) => {
+      appendTutorNotice('Live: ' + e);
+      liveOn = false;
+      showLiveBar(false);
+    },
   });
 }
 
