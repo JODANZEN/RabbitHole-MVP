@@ -58,8 +58,15 @@ async function callGemini(prompt, apiKey) {
 
 // ── Prompt templates (mirrors papers/backend/prompts.py) ─────────────
 
-function buildAnalysisPrompt(title, text) {
-  return `You are RabbitHole, an expert academic-content analyst.
+function buildAnalysisPrompt(title, text, course = null) {
+  const courseSection = course
+    ? `\nCOURSE CONTEXT — the student is studying this material for:\n` +
+      `Course: ${course.name}\n` +
+      (course.processed?.semester ? `Semester: ${course.processed.semester}\n` : '') +
+      `Key course concepts: ${(course.processed?.key_concepts || []).slice(0, 15).join(', ')}\n` +
+      `When relevant, note connections to these course topics in your summary and concepts.\n`
+    : '';
+  return `You are RabbitHole, an expert academic-content analyst.${courseSection}
 
 You MUST output ONLY valid JSON exactly matching the schema below.
 Do NOT output any explanation, commentary, markdown fences, or text outside the JSON object.
@@ -121,6 +128,37 @@ RULES:
 4. why_matters — be motivating and concrete.
 
 Output ONLY the JSON object.`;
+}
+
+function buildSyllabusPrompt(syllabusText) {
+  return `You are parsing a university course syllabus. Extract the structure and return ONLY valid JSON — no markdown, no extra text.
+
+SYLLABUS TEXT:
+${syllabusText.slice(0, 40000)}
+
+Return this exact schema:
+{
+  "course_name": "<full course name and number, e.g. ECON 301: Macroeconomics>",
+  "instructor": "<professor name or empty string>",
+  "semester": "<e.g. Fall 2026 or empty string>",
+  "weeks": [
+    {
+      "week": <integer>,
+      "topic": "<main topic for this week>",
+      "concepts": ["<key concept 1>", "<key concept 2>"],
+      "readings": ["<reading title or description>"]
+    }
+  ],
+  "key_concepts": ["<important concept>", ...],
+  "learning_outcomes": ["<outcome>", ...]
+}
+
+RULES:
+- weeks: extract as many weeks as exist in the syllabus. If dates are given instead of week numbers, number them sequentially.
+- key_concepts: 10-20 of the most important terms/concepts across the whole course.
+- learning_outcomes: what students should be able to do by the end of the course.
+- If a field has no information in the syllabus, use an empty string or empty array.
+- Output ONLY the JSON object.`;
 }
 
 function buildResearchAreaPrompt(concepts) {
@@ -206,6 +244,7 @@ let papersLoading    = false;
 let currentTab       = 'analysis';
 let dumbifyBtn       = null;
 let pendingSelection = '';
+let activeCourse     = null;   // loaded once on panel open, cached in memory
 
 // ══════════════════════════════════════════════════════════════════════
 // ── Extension context guard ────────────────────────────────────────────
@@ -623,6 +662,11 @@ function ensurePanel() {
         font-size:12px; font-weight:600; color:#aaa;
         border-bottom:2px solid transparent;
       ">Thread</button>
+      <button class="rh-tab-btn" data-tab="course" style="
+        flex:1; padding:9px 4px; border:none; background:none; cursor:pointer;
+        font-size:12px; font-weight:600; color:#aaa;
+        border-bottom:2px solid transparent;
+      ">Course</button>
     </div>
 
     <!-- Content area -->
@@ -646,6 +690,9 @@ function ensurePanel() {
   });
 
   renderSessionBar();
+
+  // Pre-load active course so it's ready when analyze is triggered
+  getActiveCourse().then((c) => { activeCourse = c; }).catch(() => {});
 }
 
 function switchTab(name) {
@@ -663,6 +710,8 @@ function switchTab(name) {
     renderPapersTab();
   } else if (name === 'thread') {
     renderThreadTab();
+  } else if (name === 'course') {
+    renderCourseTab();
   }
 }
 
@@ -767,7 +816,7 @@ async function analyzeText() {
       return;
     }
 
-    const data = await callGemini(buildAnalysisPrompt(title, text), apiKey);
+    const data = await callGemini(buildAnalysisPrompt(title, text, activeCourse), apiKey);
     lastAnalysisData = data;
     renderAnalysis(data);
     if (await isInSession()) recordVisit('page_analyzed', { level: data.level, concepts: data.concepts });
@@ -905,6 +954,250 @@ async function startPaperRecommendations(concepts, level) {
   if (papersTab && papersCache && papersCache.length) {
     papersTab.textContent = `Papers (${papersCache.length})`;
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ── Course tab ─────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+
+async function renderCourseTab() {
+  const content = document.getElementById('rh-content');
+  if (!content) return;
+
+  content.innerHTML = `<p style="color:#aaa; text-align:center; padding:24px 0;">Loading…</p>`;
+
+  try {
+    activeCourse = await getActiveCourse();
+  } catch (e) {
+    activeCourse = null;
+  }
+
+  if (activeCourse) {
+    renderCourseLoaded(content, activeCourse);
+  } else {
+    renderCourseSetupForm(content);
+  }
+}
+
+function renderCourseSetupForm(content) {
+  content.innerHTML = `
+    <div style="padding:4px 0;">
+      <p style="font-size:13px; font-weight:700; color:#333; margin-bottom:4px;">🎓 Set up your course</p>
+      <p style="font-size:12px; color:#888; margin-bottom:14px; line-height:1.5;">
+        Paste your syllabus and RabbitHole will ground every analysis in your actual course material.
+      </p>
+
+      <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:.04em;">
+        Course name
+      </label>
+      <input id="rh-course-name" type="text" placeholder="e.g. ECON 301 — Macroeconomics"
+        style="width:100%; box-sizing:border-box; margin:5px 0 12px; padding:8px 10px;
+          border:1.5px solid #d4d8f0; border-radius:8px; font-size:13px; outline:none;
+          font-family:inherit;" />
+
+      <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:.04em;">
+        Syllabus <span style="font-weight:400; color:#aaa;">(paste the full text)</span>
+      </label>
+      <textarea id="rh-syllabus-text" rows="8" placeholder="Paste your course syllabus here…"
+        style="width:100%; box-sizing:border-box; margin:5px 0 14px; padding:8px 10px;
+          border:1.5px solid #d4d8f0; border-radius:8px; font-size:12px; outline:none;
+          font-family:inherit; resize:vertical; line-height:1.5;"></textarea>
+
+      <button id="rh-setup-course-btn" style="
+        width:100%; padding:10px; background:linear-gradient(135deg,#667eea,#764ba2);
+        color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600;
+        cursor:pointer;
+      ">Set Up Course →</button>
+
+      <div id="rh-course-status" style="margin-top:10px; font-size:12px; text-align:center; min-height:16px; color:#e53e3e;"></div>
+    </div>
+  `;
+
+  const nameInput = content.querySelector('#rh-course-name');
+  const textarea  = content.querySelector('#rh-syllabus-text');
+  const btn       = content.querySelector('#rh-setup-course-btn');
+  const statusEl  = content.querySelector('#rh-course-status');
+
+  nameInput.addEventListener('focus', () => nameInput.style.borderColor = '#667eea');
+  nameInput.addEventListener('blur',  () => nameInput.style.borderColor = '#d4d8f0');
+  textarea.addEventListener('focus',  () => textarea.style.borderColor  = '#667eea');
+  textarea.addEventListener('blur',   () => textarea.style.borderColor  = '#d4d8f0');
+
+  btn.addEventListener('click', async () => {
+    const name     = nameInput.value.trim();
+    const syllabus = textarea.value.trim();
+
+    if (!name) { statusEl.textContent = 'Enter a course name.'; return; }
+    if (syllabus.length < 100) { statusEl.textContent = 'Paste more of your syllabus — need at least a few sentences.'; return; }
+
+    const apiKey = await getApiKey();
+    if (!apiKey) {
+      statusEl.textContent = 'No API key set — open the 🐇 popup to add your Gemini key first.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Processing syllabus…';
+    statusEl.textContent = '';
+
+    try {
+      const processed = await callGemini(buildSyllabusPrompt(syllabus), apiKey);
+
+      const course = {
+        id:         crypto.randomUUID(),
+        name:       name || processed.course_name || 'My Course',
+        syllabus:   syllabus,
+        processed:  {
+          ...processed,
+          semester:      processed.semester || '',
+          weeks:         processed.weeks || [],
+          key_concepts:  processed.key_concepts || [],
+          learning_outcomes: processed.learning_outcomes || [],
+        },
+        created_at: new Date().toISOString(),
+      };
+
+      await saveCourse(course);
+      await setActiveCourseId(course.id);
+      activeCourse = course;
+
+      renderCourseLoaded(content, course);
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Set Up Course →';
+      statusEl.textContent = `Error: ${err.message}`;
+    }
+  });
+}
+
+function renderCourseLoaded(content, course) {
+  const p = course.processed || {};
+  const weeks = (p.weeks || []).slice(0, 14);
+  const concepts = (p.key_concepts || []).slice(0, 18);
+
+  const weeksHtml = weeks.length
+    ? weeks.map((w) => `
+        <div style="padding:6px 0; border-bottom:1px solid #f0eef8; display:flex; gap:8px; align-items:baseline;">
+          <span style="font-size:11px; font-weight:700; color:#667eea; white-space:nowrap; min-width:48px;">Wk ${w.week}</span>
+          <span style="font-size:12px; color:#333; line-height:1.4;">${escapeHtml(w.topic || '')}</span>
+        </div>`).join('')
+    : '<p style="color:#aaa; font-size:12px; margin:0;">No weekly schedule found in syllabus.</p>';
+
+  const conceptsHtml = concepts.length
+    ? concepts.map((c) => `<span style="
+        display:inline-block; background:#eef0fb; border:1px solid #d4d8f0;
+        padding:3px 9px; border-radius:12px; font-size:11px; color:#555;
+        margin:0 4px 4px 0;">${escapeHtml(c)}</span>`).join('')
+    : '';
+
+  content.innerHTML = `
+    <div style="padding:4px 0;">
+      <!-- Header -->
+      <div style="margin-bottom:14px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+          <div>
+            <p style="font-size:13px; font-weight:700; color:#333; margin:0 0 2px;">
+              🎓 ${escapeHtml(course.name)}
+            </p>
+            ${p.semester ? `<p style="font-size:11px; color:#888; margin:0;">${escapeHtml(p.semester)}</p>` : ''}
+          </div>
+          <button id="rh-change-course" style="
+            font-size:11px; background:none; border:1px solid #ddd;
+            border-radius:6px; padding:3px 8px; cursor:pointer; color:#888;
+            white-space:nowrap; flex-shrink:0;
+          ">Change</button>
+        </div>
+        <p style="font-size:11px; color:#48bb78; font-weight:600; margin:8px 0 0;">
+          ✓ Active — analyses are grounded in this course
+        </p>
+      </div>
+
+      <!-- Weekly schedule -->
+      <p class="rh-section-label" style="margin-bottom:6px;">Weekly schedule</p>
+      <div style="margin-bottom:14px; max-height:200px; overflow-y:auto; border:1px solid #f0eef8; border-radius:8px; padding:0 10px;">
+        ${weeksHtml}
+      </div>
+
+      ${concepts.length ? `
+      <!-- Key concepts -->
+      <p class="rh-section-label" style="margin-bottom:6px;">Key course concepts</p>
+      <div style="margin-bottom:14px;">${conceptsHtml}</div>
+      ` : ''}
+
+      <!-- Add reading -->
+      <button id="rh-add-reading-btn" style="
+        width:100%; padding:9px; background:#f4f3ff; color:#667eea;
+        border:1.5px dashed #c5bff5; border-radius:8px; font-size:12px;
+        font-weight:600; cursor:pointer; margin-bottom:6px;
+      ">+ Add a reading</button>
+
+      <div id="rh-reading-form" style="display:none; margin-top:10px;">
+        <textarea id="rh-reading-text" rows="5" placeholder="Paste the reading text here…"
+          style="width:100%; box-sizing:border-box; padding:8px 10px;
+            border:1.5px solid #d4d8f0; border-radius:8px; font-size:12px;
+            font-family:inherit; resize:vertical; margin-bottom:8px; outline:none;"></textarea>
+        <input id="rh-reading-title" type="text" placeholder="Reading title (optional)"
+          style="width:100%; box-sizing:border-box; padding:7px 10px;
+            border:1.5px solid #d4d8f0; border-radius:8px; font-size:12px;
+            font-family:inherit; margin-bottom:8px; outline:none;" />
+        <button id="rh-save-reading-btn" style="
+          width:100%; padding:9px; background:linear-gradient(135deg,#667eea,#764ba2);
+          color:#fff; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer;
+        ">Save Reading</button>
+        <div id="rh-reading-status" style="margin-top:8px; font-size:12px; text-align:center; min-height:14px;"></div>
+      </div>
+    </div>
+  `;
+
+  content.querySelector('#rh-change-course').addEventListener('click', async () => {
+    if (!confirm('Remove this course and set up a new one?')) return;
+    await deleteCourse(course.id);
+    await setActiveCourseId(null);
+    activeCourse = null;
+    renderCourseSetupForm(content);
+  });
+
+  const addBtn     = content.querySelector('#rh-add-reading-btn');
+  const readingForm = content.querySelector('#rh-reading-form');
+  addBtn.addEventListener('click', () => {
+    readingForm.style.display = readingForm.style.display === 'none' ? 'block' : 'none';
+    addBtn.textContent = readingForm.style.display === 'none' ? '+ Add a reading' : '− Cancel';
+  });
+
+  content.querySelector('#rh-save-reading-btn').addEventListener('click', async () => {
+    const text   = content.querySelector('#rh-reading-text').value.trim();
+    const title  = content.querySelector('#rh-reading-title').value.trim() || 'Untitled Reading';
+    const status = content.querySelector('#rh-reading-status');
+
+    if (text.length < 50) { status.textContent = 'Paste more text — need at least a paragraph.'; return; }
+
+    const saveBtn = content.querySelector('#rh-save-reading-btn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '⏳ Saving…';
+    status.style.color = '#888';
+    status.textContent = '';
+
+    try {
+      const reading = {
+        id:         crypto.randomUUID(),
+        course_id:  course.id,
+        title,
+        text,
+        saved_at:   new Date().toISOString(),
+      };
+      await saveReading(reading);
+      status.style.color = '#48bb78';
+      status.textContent = '✓ Reading saved!';
+      content.querySelector('#rh-reading-text').value  = '';
+      content.querySelector('#rh-reading-title').value = '';
+      setTimeout(() => { status.textContent = ''; saveBtn.disabled = false; saveBtn.textContent = 'Save Reading'; }, 2000);
+    } catch (err) {
+      status.style.color = '#e53e3e';
+      status.textContent = `Error: ${err.message}`;
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Reading';
+    }
+  });
 }
 
 function renderPapersTab() {
