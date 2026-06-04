@@ -1,20 +1,25 @@
 """
 RabbitHole — text embeddings via Gemini's native REST API.
 
-Uses text-embedding-004 (768-dim, free tier). We hit the native
-batchEmbedContents endpoint with httpx rather than the OpenAI-compat layer,
-since the native endpoint's batching and dimensions are well-documented and stable.
+Uses gemini-embedding-001 (the current GA embedding model). That model exposes
+:embedContent (one text per call), so we embed concurrently in bounded batches
+rather than relying on a sync inline-batch endpoint.
+
+We request 768-dim output (outputDimensionality) to match the pgvector column.
+Cosine distance is scale-invariant, so truncated (un-normalized) dims are fine for ranking.
 """
 
+import asyncio
 import os
 from typing import List
 
 import httpx
 
-EMBED_MODEL = "text-embedding-004"
+EMBED_MODEL = "gemini-embedding-001"
+EMBED_DIM = 768
 _BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-# Gemini caps batchEmbedContents at 100 requests per call.
-_BATCH_SIZE = 100
+# How many embedContent calls to run concurrently (stays under free-tier RPM).
+_CONCURRENCY = 16
 
 
 def _api_key() -> str:
@@ -26,31 +31,32 @@ def _api_key() -> str:
     return key
 
 
+async def _embed_one(client: httpx.AsyncClient, url: str, text: str) -> List[float]:
+    payload = {
+        "model": f"models/{EMBED_MODEL}",
+        "content": {"parts": [{"text": text}]},
+        "outputDimensionality": EMBED_DIM,
+    }
+    resp = await client.post(url, json=payload)
+    resp.raise_for_status()
+    return resp.json()["embedding"]["values"]
+
+
 async def embed_texts(texts: List[str]) -> List[List[float]]:
     """Embed a list of texts, returning one 768-float vector per input (in order)."""
     if not texts:
         return []
     key = _api_key()
-    url = f"{_BASE}/{EMBED_MODEL}:batchEmbedContents?key={key}"
+    url = f"{_BASE}/{EMBED_MODEL}:embedContent?key={key}"
     out: List[List[float]] = []
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        for start in range(0, len(texts), _BATCH_SIZE):
-            batch = texts[start : start + _BATCH_SIZE]
-            payload = {
-                "requests": [
-                    {
-                        "model": f"models/{EMBED_MODEL}",
-                        "content": {"parts": [{"text": t}]},
-                    }
-                    for t in batch
-                ]
-            }
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            for item in data.get("embeddings", []):
-                out.append(item.get("values", []))
+        for start in range(0, len(texts), _CONCURRENCY):
+            batch = texts[start : start + _CONCURRENCY]
+            vecs = await asyncio.gather(
+                *(_embed_one(client, url, t) for t in batch)
+            )
+            out.extend(vecs)
 
     if len(out) != len(texts):
         raise RuntimeError(
