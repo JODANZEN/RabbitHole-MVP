@@ -15,8 +15,9 @@
 const GEMINI_API_URL     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const GROQ_API_URL       = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL         = 'llama-3.3-70b-versatile';
-const GEMINI_KEY_STORAGE = 'rabbithole_gemini_key';
-const GROQ_KEY_STORAGE   = 'rabbithole_groq_key';
+const GEMINI_KEY_STORAGE    = 'rabbithole_gemini_key';
+const GROQ_KEY_STORAGE      = 'rabbithole_groq_key';
+const PRIMARY_PROVIDER_KEY  = 'rabbithole_primary_provider'; // 'gemini' | 'groq'
 const REQUEST_TIMEOUT_MS = 30_000;
 const SESSION_KEY        = 'rabbithole_session';   // key in chrome.storage.local
 
@@ -24,8 +25,12 @@ const SESSION_KEY        = 'rabbithole_session';   // key in chrome.storage.loca
 
 function getApiKeys() {
   return new Promise((resolve) => {
-    chrome.storage.local.get([GEMINI_KEY_STORAGE, GROQ_KEY_STORAGE], (r) => {
-      resolve({ gemini: r[GEMINI_KEY_STORAGE] || '', groq: r[GROQ_KEY_STORAGE] || '' });
+    chrome.storage.local.get([GEMINI_KEY_STORAGE, GROQ_KEY_STORAGE, PRIMARY_PROVIDER_KEY], (r) => {
+      resolve({
+        gemini:  r[GEMINI_KEY_STORAGE] || '',
+        groq:    r[GROQ_KEY_STORAGE]   || '',
+        primary: r[PRIMARY_PROVIDER_KEY] || 'gemini',
+      });
     });
   });
 }
@@ -102,25 +107,28 @@ async function _callGroq(prompt, apiKey) {
 }
 
 async function callLLM(prompt) {
-  const { gemini, groq } = await getApiKeys();
-  if (!gemini && !groq) {
-    throw new Error('no_keys');
-  }
-  // Try Gemini first, fall back to Groq on quota errors
-  if (gemini) {
+  const { gemini, groq, primary } = await getApiKeys();
+  if (!gemini && !groq) throw new Error('no_keys');
+
+  const ordered = primary === 'groq'
+    ? [{ type: 'groq', key: groq }, { type: 'gemini', key: gemini }]
+    : [{ type: 'gemini', key: gemini }, { type: 'groq', key: groq }];
+
+  const available = ordered.filter((p) => p.key);
+  let lastErr;
+  for (const p of available) {
     try {
-      return await _callGemini(prompt, gemini);
+      return await (p.type === 'gemini' ? _callGemini(prompt, p.key) : _callGroq(prompt, p.key));
     } catch (err) {
-      if (err.isQuota && groq) {
-        console.debug('[RabbitHole] Gemini quota hit — falling back to Groq');
-      } else {
-        throw err;
+      lastErr = err;
+      if (err.isQuota && available.indexOf(p) < available.length - 1) {
+        console.debug(`[RabbitHole] ${p.type} quota hit — trying fallback`);
+        continue;
       }
+      throw err;
     }
   }
-  if (groq) {
-    return await _callGroq(prompt, groq);
-  }
+  throw lastErr;
 }
 
 // ── Prompt templates (mirrors papers/backend/prompts.py) ─────────────
@@ -667,6 +675,18 @@ function extractTitle() {
 // ── Panel UI ───────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════
 
+function setProviderToggle(panel, primary) {
+  const gBtn = panel.querySelector('#rh-primary-gemini');
+  const rBtn = panel.querySelector('#rh-primary-groq');
+  if (!gBtn || !rBtn) return;
+  const active   = 'border:1.5px solid #667eea; background:#667eea; color:#fff;';
+  const inactive = 'border:1.5px solid #d4d8f0; background:#fff; color:#888;';
+  gBtn.style.cssText += primary === 'gemini' ? active : inactive;
+  rBtn.style.cssText += primary === 'groq'   ? active : inactive;
+  gBtn.dataset.active = String(primary === 'gemini');
+  rBtn.dataset.active = String(primary === 'groq');
+}
+
 function ensurePanel() {
   if (document.getElementById('rabbithole-panel')) return;
 
@@ -735,6 +755,19 @@ function ensurePanel() {
           border-radius:7px; background:#f4f4ff; cursor:pointer; font-size:12px;">👁</button>
       </div>
 
+      <p style="font-size:11px; font-weight:700; color:#555; text-transform:uppercase;
+        letter-spacing:.05em; margin:0 0 6px;">Primary provider</p>
+      <div style="display:flex; gap:6px; margin-bottom:12px;">
+        <button id="rh-primary-gemini" data-val="gemini" style="
+          flex:1; padding:7px; border:1.5px solid #667eea; border-radius:7px;
+          background:#667eea; color:#fff; font-size:12px; font-weight:600; cursor:pointer;
+        ">Gemini</button>
+        <button id="rh-primary-groq" data-val="groq" style="
+          flex:1; padding:7px; border:1.5px solid #d4d8f0; border-radius:7px;
+          background:#fff; color:#888; font-size:12px; font-weight:600; cursor:pointer;
+        ">Groq</button>
+      </div>
+
       <button id="rh-save-keys-btn" style="
         width:100%; padding:9px; background:linear-gradient(135deg,#667eea,#764ba2);
         color:#fff; border:none; border-radius:7px; font-size:12px;
@@ -797,13 +830,16 @@ function ensurePanel() {
     const isOpen  = overlay.style.display !== 'none';
     overlay.style.display = isOpen ? 'none' : 'block';
     if (!isOpen) {
-      const { gemini, groq } = await getApiKeys();
-      const gInput = panel.querySelector('#rh-gemini-key-input');
-      const rInput = panel.querySelector('#rh-groq-key-input');
-      if (gemini) gInput.value = gemini;
-      if (groq)   rInput.value = groq;
+      const { gemini, groq, primary } = await getApiKeys();
+      if (gemini) panel.querySelector('#rh-gemini-key-input').value = gemini;
+      if (groq)   panel.querySelector('#rh-groq-key-input').value   = groq;
+      setProviderToggle(panel, primary);
     }
   });
+
+  // Primary provider toggle
+  panel.querySelector('#rh-primary-gemini').addEventListener('click', () => setProviderToggle(panel, 'gemini'));
+  panel.querySelector('#rh-primary-groq').addEventListener('click',   () => setProviderToggle(panel, 'groq'));
 
   // Toggle key visibility
   panel.querySelector('#rh-gemini-vis').addEventListener('click', () => {
@@ -817,11 +853,12 @@ function ensurePanel() {
 
   // Save keys
   panel.querySelector('#rh-save-keys-btn').addEventListener('click', () => {
-    const gemini  = panel.querySelector('#rh-gemini-key-input').value.trim();
-    const groq    = panel.querySelector('#rh-groq-key-input').value.trim();
+    const gemini   = panel.querySelector('#rh-gemini-key-input').value.trim();
+    const groq     = panel.querySelector('#rh-groq-key-input').value.trim();
+    const primary  = panel.querySelector('#rh-primary-gemini').dataset.active === 'true' ? 'gemini' : 'groq';
     const statusEl = panel.querySelector('#rh-keys-status');
     if (!gemini && !groq) { statusEl.style.color = '#e53e3e'; statusEl.textContent = 'Enter at least one key.'; return; }
-    const toSave = {};
+    const toSave = { [PRIMARY_PROVIDER_KEY]: primary };
     if (gemini) toSave[GEMINI_KEY_STORAGE] = gemini;
     if (groq)   toSave[GROQ_KEY_STORAGE]   = groq;
     chrome.storage.local.set(toSave, () => {
