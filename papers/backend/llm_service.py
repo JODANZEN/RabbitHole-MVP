@@ -193,6 +193,83 @@ def _mock_research_area(concepts: List[str]) -> Dict[str, Any]:
     return {"area": area, "description": desc}
 
 
+# ── Course features (syllabus parsing + free-form tutor answers) ──────
+
+async def process_syllabus(syllabus_text: str) -> Dict[str, Any]:
+    """Parse a syllabus into structured JSON (weeks, key concepts, outcomes)."""
+    prompt = f"""You are parsing a university course syllabus. Extract the structure and return ONLY valid JSON — no markdown, no extra text.
+
+SYLLABUS TEXT:
+{syllabus_text[:40000]}
+
+Return this exact schema:
+{{
+  "course_name": "<full course name and number>",
+  "instructor": "<professor name or empty string>",
+  "semester": "<e.g. Fall 2026 or empty string>",
+  "weeks": [
+    {{"week": <int>, "topic": "<topic>", "concepts": ["<concept>"], "readings": ["<reading>"]}}
+  ],
+  "key_concepts": ["<concept>"],
+  "learning_outcomes": ["<outcome>"]
+}}
+
+RULES:
+- weeks: extract every week present; if dates are used, number sequentially.
+- key_concepts: 10-20 of the most important terms across the whole course.
+- learning_outcomes: what students should be able to do by the end.
+- Empty string / empty array where information is missing.
+- Output ONLY the JSON object."""
+
+    providers = _get_providers()
+    if not providers:
+        return {"course_name": "", "instructor": "", "semester": "",
+                "weeks": [], "key_concepts": [], "learning_outcomes": []}
+    for api_key, base_url, model, name, _ in providers:
+        try:
+            raw = await _call_llm(prompt, api_key, base_url, model)
+            data = json.loads(raw)
+            data.setdefault("weeks", [])
+            data.setdefault("key_concepts", [])
+            data.setdefault("learning_outcomes", [])
+            return data
+        except QuotaExhaustedError:
+            continue
+        except Exception as exc:
+            print(f"[RabbitHole] process_syllabus failed ({name}): {exc}")
+            continue
+    return {"course_name": "", "instructor": "", "semester": "",
+            "weeks": [], "key_concepts": [], "learning_outcomes": []}
+
+
+async def generate_answer(prompt: str, temperature: float = 0.3) -> str:
+    """Free-form (non-JSON) completion for the tutor. Uses the provider chain."""
+    from openai import AsyncOpenAI
+    providers = _get_providers()
+    if not providers:
+        return ("No LLM provider is configured. Add a GEMINI_API_KEY or GROQ_API_KEY "
+                "to papers/.env to enable the tutor.")
+    for api_key, base_url, model, name, _ in providers:
+        try:
+            kwargs = {"api_key": api_key}
+            if base_url:
+                kwargs["base_url"] = base_url
+            client = AsyncOpenAI(**kwargs)
+            resp = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+            )
+            return resp.choices[0].message.content.strip()
+        except QuotaExhaustedError:
+            print(f"[RabbitHole] generate_answer: {name} quota exhausted — trying next")
+            continue
+        except Exception as exc:
+            print(f"[RabbitHole] generate_answer failed ({name}): {exc}")
+            continue
+    return "All LLM providers are currently rate-limited. Please try again shortly."
+
+
 async def find_related_papers(concepts: List[str], current_level: int = 5,
                               session_concepts: List[str] = None) -> List[Dict[str, Any]]:
     if not concepts:

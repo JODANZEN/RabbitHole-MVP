@@ -12,6 +12,8 @@ from datetime import datetime
 import json
 import os
 from .llm_service import analyze_paper, explain_text, find_related_papers
+from . import rag
+from .database import init_db, db_configured
 
 # ─── Analysis cache ──────────────────────────────────────────────────
 # Keyed by URL. Persists to disk so restarts don't re-cost API calls.
@@ -36,7 +38,15 @@ def _save_cache():
 
 _load_cache()
 
-app = FastAPI(title="RabbitHole API", version="0.3.0")
+app = FastAPI(title="RabbitHole API", version="0.4.0")
+
+
+@app.on_event("startup")
+def _startup():
+    try:
+        init_db()
+    except Exception as e:
+        print(f"[RabbitHole] DB init failed (course features disabled): {e}")
 
 # CORS middleware — allow the Chrome extension to call us
 app.add_middleware(
@@ -111,6 +121,23 @@ class VisitEvent(BaseModel):
     timestamp: str
     event_type: str                 # "page_analyzed" | "concept_clicked"
     concept: Optional[str] = None
+
+
+# ─── Course / RAG models ────────────────────────────────────────────
+
+class CourseCreate(BaseModel):
+    name: str
+    syllabus: str = ""
+
+
+class ReadingCreate(BaseModel):
+    title: Optional[str] = "Untitled Reading"
+    text: str
+
+
+class AskInput(BaseModel):
+    question: str
+    k: Optional[int] = 6
 
 
 # ─── Analysis endpoint ───────────────────────────────────────────────
@@ -416,11 +443,90 @@ async def session_get(session_id: str):
     return {"session_id": session_id, **sessions[session_id]}
 
 
+# ─── Course / RAG endpoints ─────────────────────────────────────────
+
+def _require_db():
+    if not db_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Course features require DATABASE_URL (Supabase) in papers/.env",
+        )
+
+
+@app.post("/courses")
+async def create_course(body: CourseCreate):
+    """Create a course from a syllabus: parse structure + embed for RAG."""
+    _require_db()
+    if not body.name.strip() and not body.syllabus.strip():
+        raise HTTPException(status_code=422, detail="Provide a course name or syllabus")
+    print(f"[RabbitHole] /courses — name='{body.name}', syllabus_len={len(body.syllabus)}")
+    try:
+        return await rag.create_course(body.name.strip(), body.syllabus)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/courses")
+async def list_courses():
+    _require_db()
+    return {"courses": await rag.list_courses()}
+
+
+@app.get("/courses/{course_id}")
+async def get_course(course_id: str):
+    _require_db()
+    course = await rag.get_course(course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return course
+
+
+@app.delete("/courses/{course_id}")
+async def delete_course(course_id: str):
+    _require_db()
+    ok = await rag.delete_course(course_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return {"status": "deleted", "course_id": course_id}
+
+
+@app.post("/courses/{course_id}/readings")
+async def add_reading(course_id: str, body: ReadingCreate):
+    """Attach a reading (chunk + embed) to a course."""
+    _require_db()
+    if len(body.text.strip()) < 50:
+        raise HTTPException(status_code=422, detail="Reading text is too short")
+    course = await rag.get_course(course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    print(f"[RabbitHole] /courses/{course_id}/readings — title='{body.title}', len={len(body.text)}")
+    try:
+        return await rag.ingest_reading(course_id, body.title or "Untitled Reading", body.text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/courses/{course_id}/ask")
+async def ask_course(course_id: str, body: AskInput):
+    """Answer a question grounded in the course's material (RAG)."""
+    _require_db()
+    q = body.question.strip()
+    if len(q) < 3:
+        raise HTTPException(status_code=422, detail="Question is too short")
+    print(f"[RabbitHole] /courses/{course_id}/ask — q='{q[:80]}'")
+    try:
+        return await rag.answer_question(course_id, q, body.k or 6)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Health ─────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.3.0"}
+    return {"status": "ok", "version": "0.4.0", "db": db_configured()}
 
 
 if __name__ == "__main__":
