@@ -12,9 +12,187 @@
 
 'use strict';
 
-const BACKEND_URL        = 'http://127.0.0.1:8000';
+const GEMINI_API_URL     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const API_KEY_STORAGE    = 'rabbithole_api_key';
 const REQUEST_TIMEOUT_MS = 30_000;
 const SESSION_KEY        = 'rabbithole_session';   // key in chrome.storage.local
+
+// ── Gemini helpers ────────────────────────────────────────────────────
+
+function getApiKey() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(API_KEY_STORAGE, (r) => resolve(r[API_KEY_STORAGE] || ''));
+  });
+}
+
+async function callGemini(prompt, apiKey) {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.0 },
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(tid);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const msg = err?.error?.message || `HTTP ${response.status}`;
+      if (response.status === 400 && msg.includes('API_KEY')) throw new Error('Invalid API key. Check your key in the RabbitHole popup.');
+      if (response.status === 429) throw new Error('Gemini rate limit hit — wait a moment and try again.');
+      if (response.status === 403) throw new Error('API key not authorized. Make sure the Gemini API is enabled in Google AI Studio.');
+      throw new Error(msg);
+    }
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    return JSON.parse(clean);
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+// ── Prompt templates (mirrors papers/backend/prompts.py) ─────────────
+
+function buildAnalysisPrompt(title, text) {
+  return `You are RabbitHole, an expert academic-content analyst.
+
+You MUST output ONLY valid JSON exactly matching the schema below.
+Do NOT output any explanation, commentary, markdown fences, or text outside the JSON object.
+
+──────────────────────────────────────────────
+TITLE: ${title}
+
+TEXT (pre-cleaned article content — UI/menu text has been stripped):
+${text.slice(0, 120000)}
+──────────────────────────────────────────────
+
+REQUIRED OUTPUT (strict JSON, nothing else):
+
+{
+  "level": <integer 1-10>,
+  "level_reason": "<one sentence explaining the rating>",
+  "summary": "<2-4 sentence summary of the text's main points>",
+  "concepts": ["<phrase 1>", "<phrase 2>", ... 5-7 phrases],
+  "prerequisite": "<one sentence: what should the reader know first>",
+  "easier": "<one sentence: a concrete recommendation for an easier starting point>",
+  "deeper": "<one sentence: a concrete pointer for going deeper into the topic>",
+  "confidence": <float 0.0-1.0>
+}
+
+RULES:
+1. level — 1-2: everyday language; 3-4: intro textbook; 5-6: intermediate; 7-8: advanced with math/notation; 9-10: frontier research. Base on CONTENT INDICATORS (math symbols, citation density, jargon), not word count.
+2. concepts — 5-7 noun phrases (2-4 words each) that MUST appear verbatim (case-insensitive) in the TEXT above. Never include UI labels, author names, or generic filler.
+3. prerequisite — one concrete knowledge area (e.g. "linear algebra and matrix decomposition").
+4. easier — one specific real resource (e.g. "Wikipedia article on Bayesian inference").
+5. deeper — one real subfield or named topic direction.
+6. confidence — 0.0-1.0 self-assessed confidence.
+7. summary — 2-4 sentences about what the text actually says.
+
+Output ONLY the JSON object. No preamble, no trailing text, no markdown fences.`;
+}
+
+function buildExplainPrompt(text) {
+  return `You are RabbitHole's Dumbify engine — you make complex academic and scientific text understandable to anyone curious but non-expert.
+
+A reader selected this text:
+
+SELECTED TEXT:
+${text.slice(0, 2000)}
+──────────────────────────────────────────────
+
+Output ONLY valid JSON matching this exact schema (no markdown, no extra text):
+
+{
+  "explanation": "<2-3 sentences in plain everyday language a curious teenager could understand>",
+  "analogy": "<one vivid, concrete real-world analogy>",
+  "terms": [{"term": "<technical term>", "means": "<one-sentence simple definition>"}, ...],
+  "why_matters": "<one sentence on why this is significant>"
+}
+
+RULES:
+1. No jargon in explanation. Define any technical word inline.
+2. Analogy must be creative and specific. Use cooking, sports, everyday objects, etc.
+3. terms — 2-4 key technical terms from the selection. Empty array [] if none.
+4. why_matters — be motivating and concrete.
+
+Output ONLY the JSON object.`;
+}
+
+function buildResearchAreaPrompt(concepts) {
+  const list = concepts.map((c) => `- ${c}`).join('\n');
+  return `You are classifying a researcher's area of study based on the topics they have been reading.
+
+Concepts encountered (weighted by recency and frequency):
+${list}
+
+Respond with ONLY a raw JSON object — no markdown, no explanation:
+{"area":"<2-5 word field name, e.g. Quantum Machine Learning>","description":"<one sentence: what the researcher seems to be studying, mentioning 2-3 key themes>"}`;
+}
+
+// ── Semantic Scholar (free, no key needed) ────────────────────────────
+
+function estimateComplexity(text) {
+  if (!text || text.length < 30) return 5;
+  const words = text.split(/\s+/);
+  const longWords = words.filter((w) => w.length > 10).length;
+  const hasMath = /[=∑∫∂∇σμλ]|\\frac|theorem|proof|lemma/i.test(text);
+  const hasRefs = /\[\d+\]|\(et al\.?\)/i.test(text);
+  let level = 4;
+  if (longWords / Math.max(words.length, 1) > 0.12) level += 2;
+  if (hasMath) level += 2;
+  if (hasRefs) level += 1;
+  return Math.max(1, Math.min(10, level));
+}
+
+async function querySemanticScholar(concepts, currentLevel, sessionConcepts = []) {
+  if (!concepts || !concepts.length) return [];
+  const queryPool = [...concepts];
+  for (const sc of sessionConcepts) {
+    if (!queryPool.includes(sc)) queryPool.push(sc);
+  }
+  const short = queryPool.slice(0, 2).map((c) => c.split(' ').slice(0, 3).join(' '));
+  const query = encodeURIComponent(short.join(' '));
+  const fields = 'title,abstract,year,externalIds,citationCount,openAccessPdf';
+  try {
+    const resp = await fetch(
+      `https://api.semanticscholar.org/graph/v1/paper/search?query=${query}&fields=${fields}&limit=10`,
+      { headers: { 'User-Agent': 'RabbitHole/0.3' } }
+    );
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    const papers = (data.data || []).map((paper) => {
+      const ext     = paper.externalIds || {};
+      const oaPdf   = (paper.openAccessPdf || {}).url || '';
+      const arxivId = ext.ArXiv || '';
+      const doi     = ext.DOI || '';
+      const pid     = paper.paperId || '';
+      const url     = oaPdf || (arxivId ? `https://arxiv.org/abs/${arxivId}` : '')
+                   || (doi ? `https://doi.org/${doi}` : '')
+                   || (pid ? `https://www.semanticscholar.org/paper/${pid}` : '');
+      const abstract = paper.abstract || '';
+      return {
+        title:      paper.title || 'Untitled',
+        year:       paper.year,
+        complexity: estimateComplexity(abstract),
+        abstract:   abstract.slice(0, 200) + (abstract.length > 200 ? '…' : ''),
+        url,
+        citations:  paper.citationCount || 0,
+      };
+    });
+    papers.sort((a, b) =>
+      Math.abs(a.complexity - currentLevel) - Math.abs(b.complexity - currentLevel)
+      || (b.citations - a.citations)
+    );
+    return papers.slice(0, 6);
+  } catch {
+    return [];
+  }
+}
 
 console.debug('[RabbitHole] Content script loaded');
 
@@ -93,13 +271,6 @@ async function startSession() {
   };
   await saveSession(session);
 
-  // Best-effort backend registration (session works locally even if backend is down)
-  fetch(BACKEND_URL + '/session/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId }),
-  }).catch(() => {});
-
   return session;
 }
 
@@ -146,20 +317,6 @@ async function recordVisit(eventType, extra = {}) {
   }
 
   await saveSession(session);
-
-  // Best-effort backend sync
-  fetch(BACKEND_URL + '/session/visit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      session_id: session.session_id,
-      url: visit.url,
-      title: visit.title,
-      timestamp: visit.timestamp,
-      event_type: eventType,
-      concept: visit.concept,
-    }),
-  }).catch(() => {});
 }
 
 /** Returns top N concepts by raw frequency across the session. */
@@ -218,19 +375,10 @@ async function inferResearchArea(session) {
   }
 
   try {
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 10_000);
-    const response = await fetch(BACKEND_URL + '/infer_research_area', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ concepts: topConcepts }),
-      signal: controller.signal,
-    });
-    clearTimeout(tid);
-    if (!response.ok) return null;
-    const data = await response.json();
+    const apiKey = await getApiKey();
+    if (!apiKey) return null;
+    const data = await callGemini(buildResearchAreaPrompt(topConcepts), apiKey);
 
-    // Cache so we don't re-call the LLM on every tab switch
     session.research_area     = data;
     session.research_area_key = cacheKey;
     await saveSession(session);
@@ -599,47 +747,18 @@ function showPlaceholder(msg) {
 // ══════════════════════════════════════════════════════════════════════
 
 async function analyzeText() {
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    showError('No API key set. Click the 🐇 icon in the toolbar to add your free Gemini API key.');
+    return;
+  }
+
   try {
     const title   = extractTitle();
-    const { text, method, documentUrl } = extractText();
+    const { text, method } = extractText();
 
-    // ── Non-HTML document formats (PDF, PDF-viewer, DOCX, EPUB) ──
-    const FORMAT_CONFIG = {
-      'pdf':        { label: 'Extracting PDF text…',          endpoint: '/analyze_pdf_url'  },
-      'pdf-viewer': { label: 'Extracting PDF text…',          endpoint: '/analyze_pdf_url'  },
-      'docx':       { label: 'Extracting Word document text…', endpoint: '/analyze_docx_url' },
-      'epub':       { label: 'Extracting EPUB text…',          endpoint: '/analyze_epub_url' },
-    };
-
-    if (FORMAT_CONFIG[method]) {
-      const { label, endpoint } = FORMAT_CONFIG[method];
-      // documentUrl is set for pdf-viewer; otherwise use the page URL
-      const targetUrl = documentUrl || location.href;
-
-      showLoading(label);
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      const response = await fetch(BACKEND_URL + endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: targetUrl }),
-        signal: controller.signal,
-      });
-      clearTimeout(tid);
-
-      if (!response.ok) {
-        const err = await response.text();
-        const fmtName = method === 'pdf' || method === 'pdf-viewer' ? 'PDF'
-                      : method === 'docx' ? 'DOCX' : 'EPUB';
-        showError(`${fmtName} analysis failed: HTTP ${response.status}. ${err}`);
-        return;
-      }
-      const data = await response.json();
-      lastAnalysisData = data;
-      renderAnalysis(data);
-      if (await isInSession()) recordVisit('page_analyzed', { level: data.level, concepts: data.concepts });
-      startPaperRecommendations(data.concepts, data.level);
+    if (['pdf', 'pdf-viewer', 'docx', 'epub'].includes(method)) {
+      showError('PDF/DOCX/EPUB analysis requires the self-hosted backend. For now, open the document in a viewer and analyze the page text directly.');
       return;
     }
 
@@ -648,36 +767,15 @@ async function analyzeText() {
       return;
     }
 
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    const response = await fetch(BACKEND_URL + '/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, text, url: location.href, cleaned: true, method }),
-      signal: controller.signal,
-    });
-    clearTimeout(tid);
-
-    if (!response.ok) {
-      const err = await response.text();
-      showError(`Backend error: HTTP ${response.status}. Is the backend running at ${BACKEND_URL}?`);
-      return;
-    }
-
-    const data = await response.json();
+    const data = await callGemini(buildAnalysisPrompt(title, text), apiKey);
     lastAnalysisData = data;
     renderAnalysis(data);
     if (await isInSession()) recordVisit('page_analyzed', { level: data.level, concepts: data.concepts });
-
-    // Kick off paper recommendations in background
     startPaperRecommendations(data.concepts, data.level);
 
   } catch (error) {
     let msg = error.message;
-    if (error.name === 'AbortError')              msg = 'Request timed out after 30s. Is the backend responding?';
-    else if (error instanceof SyntaxError)        msg = 'Backend returned invalid JSON. Check server logs.';
-    else if (msg.includes('Failed to fetch'))     msg = `Cannot reach backend at ${BACKEND_URL}. Make sure it is running.`;
+    if (error.name === 'AbortError') msg = 'Request timed out — Gemini took too long. Try again.';
     showError(msg);
   }
 }
@@ -685,7 +783,7 @@ async function analyzeText() {
 function renderAnalysis(data) {
   const required = ['level', 'level_reason', 'summary', 'concepts', 'prerequisite', 'easier', 'deeper'];
   const missing  = required.filter((f) => !(f in data));
-  if (missing.length) { showError('Backend response missing fields: ' + missing.join(', ')); return; }
+  if (missing.length) { showError('Unexpected response from Gemini — missing fields: ' + missing.join(', ')); return; }
 
   const levelColor  = getLevelColor(data.level);
   const levelLabel  = getLevelLabel(data.level);
@@ -792,23 +890,7 @@ async function startPaperRecommendations(concepts, level) {
   } catch { /* ignore — recommendations still work without session context */ }
 
   try {
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 15_000);
-
-    const response = await fetch(BACKEND_URL + '/recommend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ concepts, level, session_concepts: sessionConcepts }),
-      signal: controller.signal,
-    });
-    clearTimeout(tid);
-
-    if (response.ok) {
-      const data = await response.json();
-      papersCache = data.papers || [];
-    } else {
-      papersCache = [];
-    }
+    papersCache = await querySemanticScholar(concepts, level, sessionConcepts);
   } catch {
     papersCache = [];
   }
@@ -970,34 +1052,25 @@ function hideDumbifyButton() {
 }
 
 async function triggerDumbify(text) {
+  const apiKey = await getApiKey();
+
   ensurePanel();
   const panel = document.getElementById('rabbithole-panel');
   panel.style.display = 'flex';
-
-  // Switch to analysis tab to show dumbify result
   switchTab('analysis');
+
+  if (!apiKey) {
+    showError('No API key set. Click the 🐇 icon in the toolbar to add your free Gemini API key.');
+    return;
+  }
+
   showLoading('Explaining in plain terms…');
 
   try {
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    const response = await fetch(BACKEND_URL + '/explain', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, context: '' }),
-      signal: controller.signal,
-    });
-    clearTimeout(tid);
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const data = await response.json();
+    const data = await callGemini(buildExplainPrompt(text), apiKey);
     renderDumbifyResult(data, text);
   } catch (error) {
-    const msg = error.name === 'AbortError'
-      ? 'Request timed out.'
-      : `Dumbify failed: ${error.message}. Is the backend running?`;
+    const msg = error.name === 'AbortError' ? 'Request timed out.' : error.message;
     showError(msg);
   }
 }

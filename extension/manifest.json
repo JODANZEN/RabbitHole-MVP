@@ -13,7 +13,8 @@
     }
   ],
   "action": {
-    "default_title": "RabbitHole - Analyze this page"
+    "default_title": "RabbitHole - Analyze this page",
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "background.js"
