@@ -355,6 +355,9 @@ let pendingSelection = '';
 let activeCourse     = null;   // loaded once on panel open, cached in memory
 let tutorMessages    = [];     // [{ role: 'user'|'tutor', text, sources? }]
 let tutorBusy        = false;
+let ttsEnabled       = false;  // speak tutor answers aloud
+let recognizing      = false;  // mic actively listening
+let recognition      = null;   // SpeechRecognition instance (lazy)
 
 // ══════════════════════════════════════════════════════════════════════
 // ── Extension context guard ────────────────────────────────────────────
@@ -1546,20 +1549,32 @@ async function renderTutorTab() {
 
   content.innerHTML = `
     <div style="display:flex; flex-direction:column; height:100%; min-height:380px;">
-      <div style="flex-shrink:0; padding:2px 0 10px; border-bottom:1px solid #f0eef8; margin-bottom:10px;">
-        <p style="font-size:12px; color:#667eea; font-weight:700; margin:0;">🎓 ${escapeHtml(activeCourse.name)}</p>
-        <p style="font-size:11px; color:#aaa; margin:2px 0 0;">Answers are grounded in your syllabus &amp; readings.</p>
+      <div style="flex-shrink:0; padding:2px 0 10px; border-bottom:1px solid #f0eef8; margin-bottom:10px;
+        display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+        <div>
+          <p style="font-size:12px; color:#667eea; font-weight:700; margin:0;">🎓 ${escapeHtml(activeCourse.name)}</p>
+          <p style="font-size:11px; color:#aaa; margin:2px 0 0;">Answers are grounded in your syllabus &amp; readings.</p>
+        </div>
+        <button id="rh-tts-toggle" title="Read answers aloud" style="
+          flex-shrink:0; background:${ttsEnabled ? '#eef0fb' : 'none'}; border:1px solid ${ttsEnabled ? '#667eea' : '#ddd'};
+          border-radius:6px; padding:4px 8px; cursor:pointer; font-size:13px;
+          color:${ttsEnabled ? '#667eea' : '#999'};">${ttsEnabled ? '🔊' : '🔇'}</button>
       </div>
 
       <div id="rh-tutor-messages" style="flex:1; overflow-y:auto; padding-right:2px;"></div>
 
       <div style="flex-shrink:0; display:flex; gap:6px; padding-top:10px; border-top:1px solid #f0eef8; margin-top:8px;">
-        <textarea id="rh-tutor-input" rows="2" placeholder="Ask your tutor anything about the course…"
+        <textarea id="rh-tutor-input" rows="2" placeholder="Ask your tutor, or tap 🎤 to speak…"
           style="flex:1; box-sizing:border-box; padding:8px 10px; border:1.5px solid #d4d8f0;
             border-radius:8px; font-size:12px; font-family:inherit; resize:none; outline:none; line-height:1.4;"></textarea>
-        <button id="rh-tutor-send" style="
-          flex-shrink:0; width:48px; background:linear-gradient(135deg,#667eea,#764ba2);
-          color:#fff; border:none; border-radius:8px; font-size:18px; cursor:pointer;">➤</button>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button id="rh-tutor-mic" title="Speak your question" style="
+            flex-shrink:0; width:48px; flex:1; background:#f4f3ff; border:1.5px solid #d4d8f0;
+            border-radius:8px; font-size:16px; cursor:pointer;">🎤</button>
+          <button id="rh-tutor-send" title="Send" style="
+            flex-shrink:0; width:48px; flex:1; background:linear-gradient(135deg,#667eea,#764ba2);
+            color:#fff; border:none; border-radius:8px; font-size:16px; cursor:pointer;">➤</button>
+        </div>
       </div>
     </div>`;
 
@@ -1567,12 +1582,95 @@ async function renderTutorTab() {
 
   const input = content.querySelector('#rh-tutor-input');
   const send  = content.querySelector('#rh-tutor-send');
+  const mic   = content.querySelector('#rh-tutor-mic');
+  const tts   = content.querySelector('#rh-tts-toggle');
   input.addEventListener('focus', () => input.style.borderColor = '#667eea');
   input.addEventListener('blur',  () => input.style.borderColor = '#d4d8f0');
   send.addEventListener('click', () => sendTutorMessage());
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTutorMessage(); }
   });
+
+  mic.addEventListener('click', () => toggleMic());
+  if (recognizing) setMicListeningUI(true);
+
+  tts.addEventListener('click', () => {
+    ttsEnabled = !ttsEnabled;
+    if (!ttsEnabled) try { window.speechSynthesis.cancel(); } catch {}
+    tts.textContent       = ttsEnabled ? '🔊' : '🔇';
+    tts.style.background   = ttsEnabled ? '#eef0fb' : 'none';
+    tts.style.borderColor  = ttsEnabled ? '#667eea' : '#ddd';
+    tts.style.color        = ttsEnabled ? '#667eea' : '#999';
+  });
+}
+
+// ── Voice: speech-to-text (mic) and text-to-speech (speak answers) ────
+
+function setMicListeningUI(on) {
+  const mic = document.getElementById('rh-tutor-mic');
+  if (!mic) return;
+  mic.textContent      = on ? '⏹' : '🎤';
+  mic.style.background  = on ? '#ffe9e9' : '#f4f3ff';
+  mic.style.borderColor = on ? '#e57373' : '#d4d8f0';
+}
+
+function toggleMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    appendTutorNotice('Voice input isn’t supported in this browser. You can still type.');
+    return;
+  }
+  if (recognizing) {
+    try { recognition && recognition.stop(); } catch {}
+    return;
+  }
+
+  recognition = new SR();
+  recognition.lang = 'en-US';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+
+  recognition.onstart = () => { recognizing = true; setMicListeningUI(true); };
+  recognition.onerror = (e) => {
+    recognizing = false;
+    setMicListeningUI(false);
+    const msg = e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'Microphone blocked on this page. Allow mic access, or try another page.'
+      : `Voice input error: ${e.error}. You can still type.`;
+    appendTutorNotice(msg);
+  };
+  recognition.onend = () => { recognizing = false; setMicListeningUI(false); };
+  recognition.onresult = (event) => {
+    let transcript = '';
+    for (let i = 0; i < event.results.length; i++) {
+      transcript += event.results[i][0].transcript;
+    }
+    const input = document.getElementById('rh-tutor-input');
+    if (input) input.value = transcript;
+    // Auto-send once we have a final result, so it feels like talking.
+    if (event.results[event.results.length - 1].isFinal && transcript.trim().length > 1) {
+      sendTutorMessage();
+    }
+  };
+
+  try { recognition.start(); }
+  catch { /* start() can throw if called twice quickly — ignore */ }
+}
+
+function appendTutorNotice(text) {
+  tutorMessages.push({ role: 'tutor', text: `ℹ️ ${text}`, sources: [] });
+  renderTutorMessages();
+}
+
+function speakAnswer(text) {
+  if (!ttsEnabled || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 1.02;
+    window.speechSynthesis.speak(u);
+  } catch { /* TTS is best-effort */ }
 }
 
 function renderTutorMessages() {
@@ -1632,7 +1730,9 @@ async function sendTutorMessage() {
 
   try {
     const res = await CourseAPI.ask(activeCourse.id, q);
-    tutorMessages.push({ role: 'tutor', text: res.answer || '(no answer)', sources: res.sources || [] });
+    const answer = res.answer || '(no answer)';
+    tutorMessages.push({ role: 'tutor', text: answer, sources: res.sources || [] });
+    speakAnswer(answer);
   } catch (err) {
     tutorMessages.push({ role: 'tutor', text: `⚠️ ${err.message}`, sources: [] });
   } finally {
