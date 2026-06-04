@@ -53,4 +53,5 @@ def init_db() -> None:
     # Idempotent migrations for columns added to pre-existing tables.
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE courses ADD COLUMN IF NOT EXISTS owner_id varchar"))
+        conn.execute(text("ALTER TABLE courses ADD COLUMN IF NOT EXISTS join_code varchar"))
     print("[RabbitHole] Database ready (pgvector enabled, tables created)")

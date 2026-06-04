@@ -9,7 +9,7 @@ so the tutor can ground answers in the syllabus itself.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
@@ -48,11 +48,26 @@ class QuestionLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class Enrollment(Base):
+    """A student's membership in a course (request → accept)."""
+    __tablename__ = "enrollments"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    course_id = Column(String, ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    student_id = Column(String, index=True)        # Supabase user id
+    status = Column(String, default="pending")     # 'pending' | 'active' | 'rejected'
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    decided_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("course_id", "student_id", name="uq_course_student"),)
+
+
 class Course(Base):
     __tablename__ = "courses"
 
     id = Column(String, primary_key=True, default=_uuid)
     owner_id = Column(String, nullable=True, index=True)  # teacher who created it
+    join_code = Column(String, index=True)                # short code students use to join
     name = Column(String, nullable=False)
     syllabus = Column(Text, default="")
     processed = Column(JSON, default=dict)  # weeks, key_concepts, learning_outcomes
@@ -69,6 +84,7 @@ class Course(Base):
         return {
             "id": self.id,
             "owner_id": self.owner_id,
+            "join_code": self.join_code,
             "name": self.name,
             "syllabus": self.syllabus,
             "processed": self.processed or {},

@@ -148,6 +148,14 @@ class RoleInput(BaseModel):
     name: Optional[str] = None
 
 
+class EnrollInput(BaseModel):
+    join_code: str
+
+
+class DecisionInput(BaseModel):
+    status: str                            # 'active' | 'rejected'
+
+
 # ─── Analysis endpoint ───────────────────────────────────────────────
 
 @app.post("/analyze", response_model=AnalysisResponse)
@@ -504,6 +512,52 @@ async def set_me(body: RoleInput, user: dict = Depends(get_current_user)):
     if body.role and body.role not in ("student", "teacher"):
         raise HTTPException(status_code=422, detail="role must be 'student' or 'teacher'")
     return await rag.update_profile(user["id"], role=body.role, name=body.name)
+
+
+# ─── Enrollment ─────────────────────────────────────────────────────
+
+@app.post("/enroll")
+async def enroll(body: EnrollInput, user: dict = Depends(get_current_user)):
+    """Student requests to join a class by its join code."""
+    _require_db()
+    try:
+        return await rag.enroll(user["id"], body.join_code)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/me/enrollments")
+async def my_enrollments(user: dict = Depends(get_current_user)):
+    """The student's classes (pending + active)."""
+    _require_db()
+    return {"enrollments": await rag.my_enrollments(user["id"])}
+
+
+@app.get("/courses/{course_id}/roster")
+async def course_roster(course_id: str, user: dict = Depends(get_current_user)):
+    """Teacher view: pending requests + active students for a course they own."""
+    _require_db()
+    try:
+        return await rag.course_roster(course_id, user["id"])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Not your course")
+
+
+@app.post("/enrollments/{enrollment_id}/decision")
+async def decide_enrollment(enrollment_id: str, body: DecisionInput,
+                            user: dict = Depends(get_current_user)):
+    """Teacher accepts or rejects a join request."""
+    _require_db()
+    if body.status not in ("active", "rejected"):
+        raise HTTPException(status_code=422, detail="status must be 'active' or 'rejected'")
+    try:
+        return await rag.decide_enrollment(enrollment_id, body.status, user["id"])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Not your course")
 
 
 @app.get("/courses/{course_id}/insights")

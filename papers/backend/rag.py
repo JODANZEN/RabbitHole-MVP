@@ -13,12 +13,23 @@ from typing import List, Dict, Any, Optional
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, delete
 
+import random
+import string
 from datetime import datetime
 
 from .database import get_session
-from .models import Course, Reading, Chunk, Profile, QuestionLog
+from .models import Course, Reading, Chunk, Profile, QuestionLog, Enrollment
 from .embeddings import embed_texts, embed_text
 from .llm_service import generate_answer, process_syllabus
+
+
+def _gen_join_code(session) -> str:
+    """A short, unambiguous, unique join code (no 0/O/1/I)."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    while True:
+        code = "".join(random.choices(alphabet, k=6))
+        if not session.query(Course).filter(Course.join_code == code).first():
+            return code
 
 
 # ── Chunking ─────────────────────────────────────────────────────────
@@ -65,7 +76,10 @@ def chunk_text(text: str, max_chars: int = 1200, overlap: int = 150) -> List[str
 def _create_course_row(name: str, syllabus: str, processed: dict, owner_id: Optional[str]) -> str:
     session = get_session()
     try:
-        course = Course(name=name, syllabus=syllabus, processed=processed, owner_id=owner_id)
+        course = Course(
+            name=name, syllabus=syllabus, processed=processed,
+            owner_id=owner_id, join_code=_gen_join_code(session),
+        )
         session.add(course)
         session.commit()
         return course.id
@@ -342,6 +356,118 @@ async def log_question(course_id: str, question: str, user_id: Optional[str] = N
         await run_in_threadpool(_log_question, course_id, question, user_id)
     except Exception as e:
         print(f"[RabbitHole] question log failed (ignored): {e}")
+
+
+# ── Enrollment (request → accept) ────────────────────────────────────
+
+def _enroll(student_id: str, join_code: str) -> Dict[str, Any]:
+    session = get_session()
+    try:
+        course = session.query(Course).filter(
+            Course.join_code == join_code.strip().upper()
+        ).first()
+        if not course:
+            raise ValueError("No class found with that join code.")
+        existing = session.query(Enrollment).filter(
+            Enrollment.course_id == course.id, Enrollment.student_id == student_id
+        ).first()
+        if existing:
+            status = existing.status
+        else:
+            session.add(Enrollment(course_id=course.id, student_id=student_id, status="pending"))
+            session.commit()
+            status = "pending"
+        return {"status": status, "course": {"id": course.id, "name": course.name}}
+    finally:
+        session.close()
+
+
+def _my_enrollments(student_id: str) -> List[Dict[str, Any]]:
+    session = get_session()
+    try:
+        rows = (
+            session.query(Enrollment, Course)
+            .join(Course, Course.id == Enrollment.course_id)
+            .filter(Enrollment.student_id == student_id)
+            .order_by(Enrollment.requested_at.desc())
+            .all()
+        )
+        return [
+            {"enrollment_id": e.id, "status": e.status,
+             "course": {"id": c.id, "name": c.name, "reading_count": len(c.readings)}}
+            for e, c in rows
+        ]
+    finally:
+        session.close()
+
+
+def _course_roster(course_id: str, owner_id: str) -> Dict[str, Any]:
+    session = get_session()
+    try:
+        course = session.get(Course, course_id)
+        if not course:
+            raise ValueError("Course not found")
+        if course.owner_id != owner_id:
+            raise PermissionError("Not your course")
+        rows = (
+            session.query(Enrollment, Profile)
+            .outerjoin(Profile, Profile.id == Enrollment.student_id)
+            .filter(Enrollment.course_id == course_id)
+            .order_by(Enrollment.requested_at.desc())
+            .all()
+        )
+        members = []
+        for e, p in rows:
+            members.append({
+                "enrollment_id": e.id,
+                "status": e.status,
+                "student": {
+                    "id": e.student_id,
+                    "name": (p.name if p else "") or (p.email if p else "") or "Unknown",
+                    "email": p.email if p else "",
+                },
+                "requested_at": e.requested_at.isoformat() if e.requested_at else None,
+            })
+        return {
+            "course": {"id": course.id, "name": course.name, "join_code": course.join_code},
+            "pending": [m for m in members if m["status"] == "pending"],
+            "active": [m for m in members if m["status"] == "active"],
+        }
+    finally:
+        session.close()
+
+
+def _decide_enrollment(enrollment_id: str, status: str, teacher_id: str) -> Dict[str, Any]:
+    session = get_session()
+    try:
+        e = session.get(Enrollment, enrollment_id)
+        if not e:
+            raise ValueError("Enrollment not found")
+        course = session.get(Course, e.course_id)
+        if not course or course.owner_id != teacher_id:
+            raise PermissionError("Not your course")
+        e.status = status
+        e.decided_at = datetime.utcnow()
+        session.commit()
+        return {"enrollment_id": e.id, "status": e.status}
+    finally:
+        session.close()
+
+
+async def enroll(student_id: str, join_code: str) -> Dict[str, Any]:
+    return await run_in_threadpool(_enroll, student_id, join_code)
+
+
+async def my_enrollments(student_id: str) -> List[Dict[str, Any]]:
+    return await run_in_threadpool(_my_enrollments, student_id)
+
+
+async def course_roster(course_id: str, owner_id: str) -> Dict[str, Any]:
+    return await run_in_threadpool(_course_roster, course_id, owner_id)
+
+
+async def decide_enrollment(enrollment_id: str, status: str, teacher_id: str) -> Dict[str, Any]:
+    return await run_in_threadpool(_decide_enrollment, enrollment_id, status, teacher_id)
 
 
 async def course_insights(course_id: str) -> Dict[str, Any]:
