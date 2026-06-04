@@ -18,7 +18,10 @@ import string
 from datetime import datetime
 
 from .database import get_session
-from .models import Course, Reading, Chunk, Profile, QuestionLog, Enrollment, Quiz, QuizQuestion
+from .models import (
+    Course, Reading, Chunk, Profile, QuestionLog, Enrollment,
+    Quiz, QuizQuestion, QuizAttempt,
+)
 from .embeddings import embed_texts, embed_text
 from .llm_service import generate_answer, process_syllabus, find_related_papers
 
