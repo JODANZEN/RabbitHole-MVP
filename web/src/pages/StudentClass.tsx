@@ -113,13 +113,20 @@ export default function StudentClass() {
             <div key={i} className="card">
               <span className="label">Question {i + 1}</span>
               <p style={{ fontWeight: 600, marginTop: 6 }}>{q.prompt}</p>
-              {q.options.map((o, oi) => (
-                <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', cursor: 'pointer', fontWeight: 400, margin: 0 }}>
-                  <input type="radio" name={`q-${i}`} checked={answers[i] === oi}
-                    onChange={() => setAnswers(answers.map((a, k) => k === i ? oi : a))} />
-                  <span style={{ fontSize: 13 }}>{o}</span>
-                </label>
-              ))}
+              {q.options.map((o, oi) => {
+                const sel = answers[i] === oi;
+                return (
+                  <label key={oi} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', marginTop: 8,
+                    cursor: 'pointer', fontWeight: 400, border: `1.5px solid ${sel ? 'var(--orange)' : 'var(--line)'}`,
+                    borderRadius: 10, background: sel ? 'rgba(255,90,31,.08)' : 'transparent',
+                  }}>
+                    <input type="radio" name={`q-${i}`} checked={sel}
+                      onChange={() => setAnswers(answers.map((a, k) => k === i ? oi : a))} />
+                    <span style={{ fontSize: 13 }}>{o}</span>
+                  </label>
+                );
+              })}
             </div>
           ))}
           {err && <p className="msg">{err}</p>}

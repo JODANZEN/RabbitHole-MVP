@@ -55,6 +55,8 @@ input, textarea {
 }
 input::placeholder, textarea::placeholder { color: #5c5c66; }
 input:focus, textarea:focus { border-color: var(--orange); }
+/* radios/checkboxes must NOT stretch to full width */
+input[type="radio"], input[type="checkbox"] { width: auto; padding: 0; margin: 0; accent-color: var(--orange); flex: none; }
 textarea { resize: vertical; line-height: 1.55; }
 
 /* ── Buttons ───────────────────────────────────────────────────── */

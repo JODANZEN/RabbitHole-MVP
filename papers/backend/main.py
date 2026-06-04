@@ -54,7 +54,7 @@ def _startup():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,   # token auth (Authorization header), not cookies → wildcard origin is valid
     allow_methods=["*"],
     allow_headers=["*"],
 )
