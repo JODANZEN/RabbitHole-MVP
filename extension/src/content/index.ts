@@ -1669,9 +1669,15 @@ async function renderTutorTab() {
 
       <div id="rh-live-bar" style="display:none; flex-shrink:0; align-items:center; justify-content:space-between;
         gap:8px; padding:8px 12px; margin-bottom:10px; background:#1c1613; border:1px solid #ff5a1f; border-radius:10px;">
-        <span id="rh-live-status" style="font-size:12px; font-weight:600; color:#ff5a1f;">● Connecting…</span>
+        <div style="display:flex; align-items:center; gap:11px; min-width:0;">
+          <span id="rh-live-orb" style="width:14px; height:14px; border-radius:50%; flex-shrink:0;
+            background:radial-gradient(circle at 35% 30%, #ffb499, #ff5a1f 60%, #e8480f);
+            box-shadow:0 0 6px 1px rgba(255,90,31,0.5); transition:transform .07s linear, box-shadow .07s linear;
+            display:inline-block;"></span>
+          <span id="rh-live-status" style="font-size:12px; font-weight:600; color:#ff5a1f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">● Connecting…</span>
+        </div>
         <button id="rh-live-end" style="font-size:11px; background:#ff5a1f; color:#fff; border:none;
-          border-radius:6px; padding:4px 12px; cursor:pointer; font-weight:600;">End call</button>
+          border-radius:6px; padding:4px 12px; cursor:pointer; font-weight:600; flex-shrink:0;">End call</button>
       </div>
 
       <div id="rh-tutor-messages" style="flex:1; overflow-y:auto; padding-right:2px;"></div>
@@ -1748,6 +1754,14 @@ function setLiveStatus(s) {
   el.textContent = map[s] || s;
 }
 
+function setLiveLevel(level) {
+  const orb = document.getElementById('rh-live-orb');
+  if (!orb) return;
+  const l = Math.min(level, 1);
+  orb.style.transform = `scale(${1 + l * 1.7})`;
+  orb.style.boxShadow = `0 0 ${6 + l * 22}px ${1 + l * 7}px rgba(255,90,31,${0.4 + l * 0.5})`;
+}
+
 async function toggleLive() {
   if (liveOn || isLiveRunning()) {
     stopLive();
@@ -1765,6 +1779,7 @@ async function toggleLive() {
 
   startLive(gemini, buildLiveSystemInstruction(activeCourse), {
     onState: (s) => setLiveStatus(s),
+    onLevel: (lvl) => setLiveLevel(lvl),
     onUserText: (t) => { liveUserBuf += t; },
     onTutorText: (t) => {
       // First tutor audio means the student's turn ended — flush their utterance.

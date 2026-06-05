@@ -15,6 +15,7 @@ export interface LiveCallbacks {
   onUserText?: (t: string) => void;
   onTutorText?: (t: string) => void;
   onTurnComplete?: () => void;
+  onLevel?: (level: number) => void;   // 0..1 audio amplitude for the visualizer
   onError: (e: string) => void;
 }
 
@@ -23,9 +24,30 @@ let inputCtx: AudioContext | null = null;
 let outputCtx: AudioContext | null = null;
 let micStream: MediaStream | null = null;
 let processor: ScriptProcessorNode | null = null;
+let inputAnalyser: AnalyserNode | null = null;
+let outputAnalyser: AnalyserNode | null = null;
+let rafId = 0;
 let sources: AudioBufferSourceNode[] = [];
 let playHead = 0;
 let running = false;
+
+function rms(analyser: AnalyserNode): number {
+  const buf = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(buf);
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) { const x = (buf[i] - 128) / 128; sum += x * x; }
+  return Math.sqrt(sum / buf.length);
+}
+function startLevelLoop(cb: LiveCallbacks) {
+  const tick = () => {
+    if (!running) return;
+    const inL = inputAnalyser ? rms(inputAnalyser) : 0;
+    const outL = outputAnalyser ? rms(outputAnalyser) : 0;
+    cb.onLevel?.(Math.min(1, Math.max(inL, outL) * 3.2));
+    rafId = requestAnimationFrame(tick);
+  };
+  rafId = requestAnimationFrame(tick);
+}
 
 export function isLiveRunning() { return running; }
 
@@ -75,7 +97,7 @@ function playPCM(b64: string) {
   buf.copyToChannel(f32, 0);
   const src = outputCtx.createBufferSource();
   src.buffer = buf;
-  src.connect(outputCtx.destination);
+  src.connect(outputAnalyser || outputCtx.destination);
   const now = outputCtx.currentTime;
   if (playHead < now) playHead = now;
   src.start(playHead);
@@ -96,6 +118,9 @@ async function startMic() {
   });
   inputCtx = new AudioContext();
   const src = inputCtx.createMediaStreamSource(micStream);
+  inputAnalyser = inputCtx.createAnalyser();
+  inputAnalyser.fftSize = 512;
+  src.connect(inputAnalyser);
   processor = inputCtx.createScriptProcessor(4096, 1, 1);
   src.connect(processor);
   // ScriptProcessor only fires when connected to a destination; route through a muted gain.
@@ -129,6 +154,10 @@ export async function startLive(apiKey: string, systemInstruction: string, cb: L
   } catch {
     outputCtx = new AudioContext();
   }
+  outputAnalyser = outputCtx.createAnalyser();
+  outputAnalyser.fftSize = 512;
+  outputAnalyser.connect(outputCtx.destination);
+  startLevelLoop(cb);
 
   ws = new WebSocket(WS_URL(apiKey));
   ws.binaryType = 'arraybuffer';
@@ -179,6 +208,9 @@ export function stopLive() {
 }
 
 function cleanup() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  inputAnalyser = null;
+  outputAnalyser = null;
   try { ws?.close(); } catch { /* */ }
   ws = null;
   try { processor?.disconnect(); } catch { /* */ }

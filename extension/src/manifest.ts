@@ -3,7 +3,7 @@ import { defineManifest } from '@crxjs/vite-plugin';
 export default defineManifest({
   manifest_version: 3,
   name: 'RabbitHole',
-  version: '0.5.0',
+  version: '0.5.1',
   description:
     'AI learning companion: analyzes course material, explains complex terms, tracks your learning journey',
   permissions: ['activeTab', 'scripting', 'storage', 'contextMenus'],
