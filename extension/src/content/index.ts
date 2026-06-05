@@ -26,7 +26,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const SESSION_KEY        = 'rabbithole_session';   // key in chrome.storage.local
 
 // ── Backend (course/RAG features) ──────────────────────────────────────
-const BACKEND_URL = 'http://127.0.0.1:8000';
+// Build-time configurable: set VITE_BACKEND_URL in extension/.env for production builds.
+const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || 'http://127.0.0.1:8000';
 
 async function apiFetch(path, options = {}) {
   let res;

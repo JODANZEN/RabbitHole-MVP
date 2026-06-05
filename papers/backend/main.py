@@ -50,10 +50,12 @@ def _startup():
     except Exception as e:
         print(f"[RabbitHole] DB init failed (course features disabled): {e}")
 
-# CORS middleware — allow the Chrome extension to call us
+# CORS — override in prod via ALLOWED_ORIGINS (comma-separated); defaults to "*".
+_origins_env = os.getenv("ALLOWED_ORIGINS", "*").strip()
+_allowed_origins = ["*"] if _origins_env == "*" else [o.strip() for o in _origins_env.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=False,   # token auth (Authorization header), not cookies → wildcard origin is valid
     allow_methods=["*"],
     allow_headers=["*"],

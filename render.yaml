@@ -1,0 +1,30 @@
+# Render Blueprint — deploys the RabbitHole FastAPI backend.
+# In Render: New → Blueprint → connect this repo → it reads this file.
+# Set the secret env vars (sync:false) in the Render dashboard after first deploy.
+services:
+  - type: web
+    name: rabbithole-api
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r papers/requirements.txt
+    startCommand: uvicorn papers.backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      # Optional: lock CORS to your web app origin, e.g. https://rabbithole.vercel.app
+      - key: ALLOWED_ORIGINS
+        value: "*"
