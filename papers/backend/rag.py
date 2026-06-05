@@ -434,7 +434,7 @@ Return ONLY valid JSON (no markdown):
 ]}}
 Rules: exactly 4 options each; exactly one correct; vary the correct position; keep prompts concise."""
 
-    raw = await generate_answer(prompt, temperature=0.4)
+    raw = await generate_answer(prompt, temperature=0.4, prefer="groq")
     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         questions = json.loads(raw).get("questions", [])

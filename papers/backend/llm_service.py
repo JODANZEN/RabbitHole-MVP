@@ -39,8 +39,12 @@ GROQ_BASE    = "https://api.groq.com/openai/v1"
 
 # ── provider selection ────────────────────────────────────────────────
 
-def _get_providers() -> List[tuple]:
+def _get_providers(prefer: str = None) -> List[tuple]:
     """Return a list of (api_key, base_url, model, name, max_input_chars).
+
+    `prefer` ('gemini' | 'groq' | 'openai') puts that provider first so we can
+    route by task — e.g. the tutor prefers Gemini (quality), while bulk work
+    (analysis, summaries, quiz generation) prefers Groq (far higher free limits).
 
     max_input_chars is how much of the paper text to send to that provider.
     Scientific papers tokenise at ~2.5 chars/token (lots of equations/symbols).
@@ -66,9 +70,8 @@ def _get_providers() -> List[tuple]:
     if openai and openai.lower() != "mock":
         candidates.append((openai, None, OPENAI_MODEL, "OpenAI", 400_000))
 
-    # RABBITHOLE_PROVIDER lets you pin a specific provider during development.
-    # Example: add  RABBITHOLE_PROVIDER=groq  to papers/.env to always try Groq first.
-    preferred = os.getenv("RABBITHOLE_PROVIDER", "").strip().lower()
+    # Per-call `prefer` wins; otherwise fall back to the RABBITHOLE_PROVIDER env pin.
+    preferred = (prefer or os.getenv("RABBITHOLE_PROVIDER", "")).strip().lower()
     if preferred:
         pinned   = [p for p in candidates if p[3].lower() == preferred]
         rest     = [p for p in candidates if p[3].lower() != preferred]
@@ -97,7 +100,7 @@ def _fit_text(text: str, max_chars: int) -> str:
 
 
 async def analyze_paper(title: str, text: str) -> Dict[str, Any]:
-    providers = _get_providers()
+    providers = _get_providers(prefer="groq")   # bulk analysis → Groq (higher limits)
     if not providers:
         print("[RabbitHole] No API key — using deterministic mock")
         return _mock_analysis(title, text)
@@ -130,7 +133,7 @@ async def analyze_paper(title: str, text: str) -> Dict[str, Any]:
 
 
 async def explain_text(text: str, context: str = "") -> Dict[str, Any]:
-    providers = _get_providers()
+    providers = _get_providers(prefer="groq")   # Dumbify/summaries → Groq
     if not providers:
         return _mock_explanation(text)
     prompt = get_explain_prompt(text, context)
@@ -158,7 +161,7 @@ async def infer_research_area(concepts: List[str]) -> Dict[str, Any]:
     Returns { "area": str, "description": str }.  Falls back gracefully when no
     API key is configured or the quota is exhausted.
     """
-    providers = _get_providers()
+    providers = _get_providers(prefer="groq")
     if not providers:
         return _mock_research_area(concepts)
 
@@ -221,7 +224,7 @@ RULES:
 - Empty string / empty array where information is missing.
 - Output ONLY the JSON object."""
 
-    providers = _get_providers()
+    providers = _get_providers(prefer="groq")   # syllabus parsing → Groq
     if not providers:
         return {"course_name": "", "instructor": "", "semester": "",
                 "weeks": [], "key_concepts": [], "learning_outcomes": []}
@@ -242,10 +245,10 @@ RULES:
             "weeks": [], "key_concepts": [], "learning_outcomes": []}
 
 
-async def generate_answer(prompt: str, temperature: float = 0.3) -> str:
-    """Free-form (non-JSON) completion for the tutor. Uses the provider chain."""
+async def generate_answer(prompt: str, temperature: float = 0.3, prefer: str = "gemini") -> str:
+    """Free-form (non-JSON) completion. Tutor prefers Gemini; pass prefer='groq' for bulk tasks."""
     from openai import AsyncOpenAI
-    providers = _get_providers()
+    providers = _get_providers(prefer=prefer)
     if not providers:
         return ("No LLM provider is configured. Add a GEMINI_API_KEY or GROQ_API_KEY "
                 "to papers/.env to enable the tutor.")
