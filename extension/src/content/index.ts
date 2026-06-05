@@ -1648,7 +1648,7 @@ async function renderTutorTab() {
   }
 
   content.innerHTML = `
-    <div style="display:flex; flex-direction:column; height:100%; min-height:380px;">
+    <div style="display:flex; flex-direction:column; height:100%; min-height:380px; position:relative;">
       <div style="flex-shrink:0; padding:2px 0 10px; border-bottom:1px solid #26262d; margin-bottom:10px;
         display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
         <div>
@@ -1667,17 +1667,17 @@ async function renderTutorTab() {
         </div>
       </div>
 
-      <div id="rh-live-bar" style="display:none; flex-shrink:0; align-items:center; justify-content:space-between;
-        gap:8px; padding:8px 12px; margin-bottom:10px; background:#1c1613; border:1px solid #ff5a1f; border-radius:10px;">
-        <div style="display:flex; align-items:center; gap:11px; min-width:0;">
-          <span id="rh-live-orb" style="width:14px; height:14px; border-radius:50%; flex-shrink:0;
-            background:radial-gradient(circle at 35% 30%, #ffb499, #ff5a1f 60%, #e8480f);
-            box-shadow:0 0 6px 1px rgba(255,90,31,0.5); transition:transform .07s linear, box-shadow .07s linear;
-            display:inline-block;"></span>
-          <span id="rh-live-status" style="font-size:12px; font-weight:600; color:#ff5a1f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">● Connecting…</span>
-        </div>
-        <button id="rh-live-end" style="font-size:11px; background:#ff5a1f; color:#fff; border:none;
-          border-radius:6px; padding:4px 12px; cursor:pointer; font-weight:600; flex-shrink:0;">End call</button>
+      <!-- Full-window call mode (covers the chat; transcript keeps accumulating behind it) -->
+      <div id="rh-live-call" style="display:none; position:absolute; inset:0; z-index:6;
+        background:radial-gradient(circle at 50% 38%, #1a120e 0%, #0e0e10 70%);
+        flex-direction:column; align-items:center; justify-content:center; gap:28px;">
+        <div id="rh-live-orb" style="width:120px; height:120px; border-radius:50%;
+          background:radial-gradient(circle at 35% 30%, #ffd0bd, #ff5a1f 58%, #e8480f);
+          box-shadow:0 0 40px 8px rgba(255,90,31,0.4); transition:transform .07s linear, box-shadow .07s linear;"></div>
+        <div id="rh-live-status" style="font-size:14px; font-weight:600; color:#ff5a1f;">● Connecting…</div>
+        <button id="rh-live-end" style="background:#ff5a1f; color:#fff; border:none; border-radius:12px;
+          padding:11px 30px; font-size:14px; font-weight:700; cursor:pointer;">⏹ End call</button>
+        <p style="font-size:11px; color:#82828c; margin:0;">Your conversation is saved to the chat.</p>
       </div>
 
       <div id="rh-tutor-messages" style="flex:1; overflow-y:auto; padding-right:2px;"></div>
@@ -1741,10 +1741,8 @@ function buildLiveSystemInstruction(course) {
 }
 
 function showLiveBar(on) {
-  const bar = document.getElementById('rh-live-bar');
-  const btn = document.getElementById('rh-live-btn');
-  if (bar) bar.style.display = on ? 'flex' : 'none';
-  if (btn) btn.style.display = on ? 'none' : 'block';
+  const call = document.getElementById('rh-live-call');
+  if (call) call.style.display = on ? 'flex' : 'none';
 }
 
 function setLiveStatus(s) {
@@ -1758,8 +1756,8 @@ function setLiveLevel(level) {
   const orb = document.getElementById('rh-live-orb');
   if (!orb) return;
   const l = Math.min(level, 1);
-  orb.style.transform = `scale(${1 + l * 1.7})`;
-  orb.style.boxShadow = `0 0 ${6 + l * 22}px ${1 + l * 7}px rgba(255,90,31,${0.4 + l * 0.5})`;
+  orb.style.transform = `scale(${1 + l * 0.55})`;
+  orb.style.boxShadow = `0 0 ${36 + l * 64}px ${8 + l * 26}px rgba(255,90,31,${0.35 + l * 0.5})`;
 }
 
 async function toggleLive() {
