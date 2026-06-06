@@ -161,7 +161,24 @@ async def main():
 
     for name, email, scores in STUDENTS:
         add_student(_uid(), name, email, scores)
-    add_student(REAL_STUDENT_ID, "You (student)", "jdsn2101secundario@gmail.com", [3, 2])
+
+    # Real student: a flattering, IMPROVING profile for the demo (upward trend line).
+    s.merge(Profile(id=REAL_STUDENT_ID, email="jdsn2101secundario@gmail.com",
+                    name="You (student)", role="student"))
+    s.merge(Enrollment(id=_uid(), course_id=course.id, student_id=REAL_STUDENT_ID,
+                       status="active", decided_at=datetime.utcnow()))
+    q_thermo, q_optics = quiz_objs[0], quiz_objs[1]
+    # (quiz, score/4, days_ago) — climbs 50→75→75→75→100→100; optics stays the weaker topic
+    real_attempts = [
+        (q_optics, 2, 6), (q_optics, 3, 5), (q_thermo, 3, 4),
+        (q_optics, 3, 3), (q_thermo, 4, 2), (q_thermo, 4, 1),
+    ]
+    for quiz, sc, days in real_attempts:
+        total = len(quiz.questions) if quiz.questions else 4
+        s.add(QuizAttempt(id=_uid(), quiz_id=quiz.id, course_id=course.id,
+                          student_id=REAL_STUDENT_ID, topic=quiz.topic, score=sc, total=total,
+                          answers=[0] * total,
+                          created_at=datetime.utcnow() - timedelta(days=days)))
 
     # 6) tutor questions → recent + most-confused
     for i, q in enumerate(QUESTIONS_ASKED):
